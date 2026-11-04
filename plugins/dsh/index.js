@@ -124,6 +124,14 @@ function truncate(value, limit) {
   return raw.length > limit ? `${raw.slice(0, limit - 1)}…` : raw
 }
 
+/** 闲鱼链接带一大串追踪参数，对人和模型都是噪声，只保留 item?id=xxx。 */
+function cleanLink(link) {
+  const raw = String(link || '').trim()
+  if (!raw) return ''
+  const match = raw.match(/[?&]id=(\d+)/)
+  return match ? `https://www.goofish.com/item?id=${match[1]}` : raw.split('?')[0]
+}
+
 function renderCandidates(value) {
   const lines = [
     `候选商品：共 ${value.total} 条，第 ${value.page} 页（每页 ${value.limit} 条）。`,
@@ -139,7 +147,7 @@ function renderCandidates(value) {
         `- [${item.ai_label || item.ai_verdict}] ${item.title}`,
         `  ${money(item.price)}｜评分 ${score}｜${item.task_name}`,
         item.ai_summary ? `  依据：${truncate(item.ai_summary, 160)}` : '',
-        item.link ? `  ${item.link}` : '',
+        item.link ? `  ${cleanLink(item.link)}` : '',
       ]
         .filter(Boolean)
         .join('\n'),
