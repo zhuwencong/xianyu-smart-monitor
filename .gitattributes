@@ -1,0 +1,37 @@
+# 统一换行，避免 Windows / macOS / Linux 贡献者互相制造整文件 diff。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则部分 cmd 场景会解析异常。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell / Python / 前端源码固定 LF。
+*.sh text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.vue text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# 二进制资源不做换行转换，也不参与文本 diff。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.svg text eol=lf
+*.woff binary
+*.woff2 binary
+
+# 锁文件在 diff 中折叠，仍保留完整内容。
+package-lock.json -diff linguist-generated
+uv.lock -diff linguist-generated
+
+# 让 GitHub 语言统计不被生成物干扰。
+dist/** linguist-generated
+web-ui/dist/** linguist-generated

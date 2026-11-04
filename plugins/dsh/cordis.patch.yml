@@ -1,0 +1,10 @@
+# 闲鱼智能监控 × DSH
+# 安装：dsh plugin --profile <profile> add dsh-plugin-xianyu-monitor
+# 前提：本机已运行监控服务（python -m src.app，默认 http://127.0.0.1:8000）
+- insert:
+    - id: xianyu-monitor
+      name: dsh-plugin-xianyu-monitor
+      config:
+        baseUrl: http://127.0.0.1:8000
+        timeoutMs: 15000
+        defaultLimit: 12

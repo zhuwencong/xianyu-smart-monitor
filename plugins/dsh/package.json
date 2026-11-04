@@ -1,0 +1,51 @@
+{
+  "name": "dsh-plugin-xianyu-monitor",
+  "version": "0.1.0",
+  "description": "闲鱼智能监控 × DeepSeek Harness：把本机监控服务的候选商品、任务与运行记录接入 DSH。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "xianyu",
+    "闲鱼",
+    "marketplace",
+    "monitor"
+  ],
+  "homepage": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/tree/main/plugins/dsh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git",
+    "directory": "plugins/dsh"
+  },
+  "bugs": {
+    "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/issues"
+  },
+  "author": "闲鱼智能监控 Contributors",
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

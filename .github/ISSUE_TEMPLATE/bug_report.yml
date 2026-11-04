@@ -1,0 +1,102 @@
+name: Bug 报告
+description: 报告一个可以复现的问题（抓取失败、界面异常、通知不送达等）
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。**请先做两件事**：
+        1. 搜索已有 Issue，避免重复。
+        2. 确认问题不是「登录态过期」——这是最常见的原因，去账号页重新扫码即可。
+        涉及安全漏洞请**不要**在这里发，见 [SECURITY.md](../blob/main/SECURITY.md)。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响模块
+      options:
+        - 爬虫 / 抓取（搜不到、翻页、风控）
+        - AI 分析（判断不准、调用报错）
+        - Web 界面（页面、交互、样式）
+        - 任务调度（定时不触发、启动/停止异常）
+        - 通知推送（Bark / Telegram / 企微 / PushPlus / Webhook）
+        - 账号与登录态
+        - 部署（Docker / 本地 / start.sh）
+        - 插件（DSH / WorkBuddy）
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 期望行为 vs 实际行为，尽量具体。
+      placeholder: |
+        期望：任务「显卡监控」每天早上 8 点跑一轮，把新商品推到 Bark。
+        实际：任务显示 scheduled，但 8 点没有日志、也没有推送。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开工作台 → 监控任务 → 新建任务
+        2. 关键词填 XXX，价格 500-1500
+        3. 点击「立即运行」
+        4. 观察 logs/task_*.log
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / commit
+      description: 运行 `git rev-parse --short HEAD`，或填写镜像 tag。
+      placeholder: "a1b2c3d 或 ghcr.io/<GITHUB_USER>/xianyu-smart-monitor:latest"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose
+        - 本地 Python（start.sh / python -m src.app）
+        - 本地 + 前端 dev server
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 操作系统与浏览器
+      placeholder: "Windows 11 + Chrome 141 / Ubuntu 24.04 + Chromium"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: |
+        请贴 `logs/task_<id>.log` 或 `logs/server.out` 的相关片段（可脱敏）。
+        **贴之前务必删除：cookie、token、API Key、商品链接里的个人参数、卖家昵称。**
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查
+      options:
+        - label: 我已确认登录态有效（账号页无失效提醒）
+          required: true
+        - label: 我已删除日志中的凭据与个人信息
+          required: true
+        - label: 我已搜索过已有 Issue
+          required: true
