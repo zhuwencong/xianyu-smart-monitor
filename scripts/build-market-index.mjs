@@ -18,12 +18,13 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
 
 function parseArgs(argv) {
-  const args = { plugin: 'plugins/dsh', output: 'market/index.json', repoUrl: '' }
+  const args = { plugin: 'plugins/dsh', output: 'market/index.json', repoUrl: '', allowPlaceholder: false }
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]
     if (token === '--plugin') args.plugin = argv[++i]
     else if (token === '--output') args.output = argv[++i]
     else if (token === '--repo-url') args.repoUrl = argv[++i]
+    else if (token === '--allow-placeholder') args.allowPlaceholder = true
   }
   return args
 }
@@ -75,9 +76,13 @@ function main() {
     console.error('✗ 读不到插件目录的提交 SHA：请先 git init && git add . && git commit。')
     process.exit(1)
   }
-  if (repoUrl.includes('<GITHUB_USER>')) {
+  if (repoUrl.includes('<GITHUB_USER>') && !args.allowPlaceholder) {
     console.error('✗ 仓库地址里还有 <GITHUB_USER> 占位符，请先执行 scripts/replace-placeholders.ps1。')
+    console.error('  如果只是想先让仓库里有一份索引（占位符稍后再替换），加 --allow-placeholder。')
     process.exit(1)
+  }
+  if (repoUrl.includes('<GITHUB_USER>')) {
+    console.warn('⚠ 索引里写的是占位符地址，替换占位符后必须重新生成本文件。')
   }
 
   const iconRel = 'icons/xianyu-monitor.svg'

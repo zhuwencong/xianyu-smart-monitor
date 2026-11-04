@@ -45,9 +45,23 @@ jobs:
       - name: 校验插件与市场索引
         run: |
           node --check plugins/dsh/index.js
+          node --check scripts/build-market-index.mjs
+          node --check scripts/validate-market-index.mjs
           node scripts/validate-market-index.mjs market/index.json
+          node scripts/check-plugin-versions.mjs
           node -e "JSON.parse(require('fs').readFileSync('plugins/dsh/package.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('config.json.example','utf8'))"
           echo "OK: 插件清单与市场索引格式正确"
+
+      - name: 检查 WorkBuddy 技能包结构
+        run: |
+          test -f plugins/workbuddy/xianyu-monitor/SKILL.md
+          test -f plugins/workbuddy/xianyu-monitor/scripts/xy.py
+          grep -q '^name:' plugins/workbuddy/xianyu-monitor/SKILL.md
+          grep -q '^display_name_en:' plugins/workbuddy/xianyu-monitor/SKILL.md
+          grep -q '^author:' plugins/workbuddy/xianyu-monitor/SKILL.md
+          python3 -c "import ast,pathlib; ast.parse(pathlib.Path('plugins/workbuddy/xianyu-monitor/scripts/xy.py').read_text(encoding='utf-8'))"
+          echo "OK: 技能包结构与 frontmatter 必填字段齐全"
 
   backend:
     name: 后端测试 (Python 3.11)

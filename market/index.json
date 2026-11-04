@@ -1,0 +1,102 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Xianyu Smart Monitor Plugins",
+    "zh": "闲鱼智能监控插件市场"
+  },
+  "description": {
+    "en": "First-party plugins for running the Xianyu smart-monitor service from an agent.",
+    "zh": "把本机闲鱼智能监控服务的候选商品、任务与运行记录接入 agent 的第一方插件。"
+  },
+  "metadata": {
+    "categories": {
+      "productivity": {
+        "title": {
+          "en": "Productivity",
+          "zh": "效率"
+        }
+      },
+      "monitoring": {
+        "title": {
+          "en": "Monitoring",
+          "zh": "监控"
+        }
+      }
+    },
+    "labels": {
+      "xianyu": {
+        "title": {
+          "en": "Xianyu",
+          "zh": "闲鱼"
+        }
+      },
+      "secondhand": {
+        "title": {
+          "en": "Second-hand",
+          "zh": "二手"
+        }
+      },
+      "local": {
+        "title": {
+          "en": "Local only",
+          "zh": "仅本地"
+        }
+      }
+    },
+    "sortKeys": {
+      "updated": {
+        "title": {
+          "en": "Recently updated",
+          "zh": "最近更新"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-plugin-xianyu-monitor",
+      "title": {
+        "en": "Xianyu Smart Monitor",
+        "zh": "闲鱼智能监控"
+      },
+      "description": {
+        "en": "Query candidates, tasks and run logs from a locally running Xianyu monitor, and start or stop tasks.",
+        "zh": "查询本机闲鱼监控的候选商品、任务与运行记录，并可启动/停止任务。需要本机已运行 python -m src.app。"
+      },
+      "icon": "icons/xianyu-monitor.svg",
+      "author": "闲鱼智能监控 Contributors",
+      "homepage": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/tree/main/plugins/dsh#readme",
+      "repository": {
+        "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor",
+        "directory": "plugins/dsh"
+      },
+      "metadata": {
+        "category": "monitoring",
+        "labels": [
+          "xianyu",
+          "secondhand",
+          "local"
+        ],
+        "sortKeys": {
+          "updated": 1793797935
+        }
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793797935,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor",
+            "commit": "11390fe036e6d65e109f33f0d3a3215784368743",
+            "path": "plugins/dsh"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        }
+      ]
+    }
+  ]
+}

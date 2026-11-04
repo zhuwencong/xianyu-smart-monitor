@@ -102,13 +102,21 @@ git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git
 cd xianyu-smart-monitor
 cp .env.example .env
 vim .env # 填写相关配置项
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f app
 docker compose down
 ```
 
 本仓库**不提供预构建镜像**（代码已与上游差异较大，用上游镜像会得到旧版本）。
-需要镜像时二选一：本地 `docker compose up -d --build`，或按 [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml) 在 CI 里构建后推到自己的命名空间。
+`docker-compose.yaml` 默认从本仓库构建；想用自己推的镜像时设 `APP_IMAGE`：
+
+```bash
+export APP_IMAGE=ghcr.io/<你的用户名>/xianyu-smart-monitor:latest
+docker compose up -d
+```
+
+打 `v*` tag 时 [.github/workflows/docker-image.yml](.github/workflows/docker-image.yml) 会把镜像推到
+`ghcr.io/<仓库所有者>/xianyu-smart-monitor`。
 
 - 默认 Web UI 地址：`http://127.0.0.1:8000`
 - Docker 镜像已内置 Chromium，无需宿主机额外安装浏览器。
@@ -302,6 +310,21 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）会跑上述全部�
 - `TASK_FAILURE_THRESHOLD`
 - `TASK_FAILURE_PAUSE_SECONDS`
 - `TASK_FAILURE_GUARD_PATH`
+
+### 抓取节奏与账号轮换（本版本新增）
+
+- `SCRAPE_SPEED_FACTOR`：全局节奏倍率，1.0 为原始速度，**越大越慢**（建议 2.0~4.0）
+- `SCRAPE_COOLDOWN_EVERY` / `SCRAPE_COOLDOWN_MIN_SECONDS` / `SCRAPE_COOLDOWN_MAX_SECONDS`：每处理 N 个商品做一次长休息
+- `SCRAPE_MAX_RUNTIME_MINUTES`：单轮运行时长上限，到点主动收工，0 表示不限制
+- `ACCOUNT_ROTATION_ENABLED` / `ACCOUNT_ROTATION_MODE` / `ACCOUNT_ROTATION_RETRY_LIMIT` / `ACCOUNT_BLACKLIST_TTL`：账号池轮换
+- `ACCOUNT_STATE_DIR`：登录态文件目录，默认 `state`
+- `RISK_CONTROL_PAUSE_SECONDS`：命中风控后冷却时长，默认 7200（2 小时）
+- `ACCOUNT_RISKCONTROL_BLACKLIST_TTL` / `RISKCONTROL_RETRY_COOLDOWN_MIN_SECONDS` / `RISKCONTROL_RETRY_COOLDOWN_MAX_SECONDS`：风控账号拉黑与换号前休眠
+
+### 每日日报（本版本新增）
+
+- `DAILY_REPORT_ENABLED`：是否推送每日汇总
+- `DAILY_REPORT_HOUR`：推送小时（0-23），默认 21
 
 完整示例见 `.env.example`。
 

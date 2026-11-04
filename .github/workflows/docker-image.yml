@@ -1,20 +1,19 @@
-name: Docker Image CI on merge to master
+name: Docker Image on release tag
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [closed]
-    branches: ["master"]
+  push:
+    tags: ["v*"]
 
 env:
-  IMAGE_NAME: ai-goofish
-  BASE_IMAGE_NAME: ai-goofish-base
+  IMAGE_NAME: xianyu-smart-monitor
+  BASE_IMAGE_NAME: xianyu-smart-monitor-base
 
 jobs:
   build-base:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

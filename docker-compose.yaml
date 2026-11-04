@@ -1,8 +1,12 @@
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/usagi-org/ai-goofish:latest}
-    container_name: ai-goofish-monitor-app
-    pull_policy: always
+    # 本地构建：docker compose up -d --build
+    # 想用自己推的镜像：export APP_IMAGE=ghcr.io/<你的用户名>/xianyu-smart-monitor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-xianyu-smart-monitor:local}
+    container_name: xianyu-smart-monitor-app
     init: true
     ports:
       - "8000:8000"
@@ -14,10 +18,12 @@ services:
       - ./.env:/app/.env
       - ./data:/app/data
       - ./state:/app/state
-      - ./config.json:/app/config.json
       - ./prompts:/app/prompts
       - ./jsonl:/app/jsonl
       - ./logs:/app/logs
       - ./images:/app/images
       - ./price_history:/app/price_history
+      # 仅在你确实要导入旧的 JSON 配置时才打开下面这行。
+      # 直接挂不存在的文件会让 Docker 把它建成目录，导致启动失败。
+      # - ./config.json:/app/config.json
     restart: unless-stopped
