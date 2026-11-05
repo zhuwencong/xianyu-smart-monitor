@@ -8,6 +8,8 @@ import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
+from src.domain.scoring import evaluate_gates, extract_specs, task_allows_professional
+from src.domain.scoring.specs import looks_like_gpu_task
 from src.keyword_rule_engine import build_search_text, evaluate_keyword_rules
 
 
@@ -30,6 +32,9 @@ class ItemAnalysisJob:
     seller_id: Optional[str]
     zhima_credit_text: Optional[str]
     registration_duration_text: str
+    budget_min: Optional[str] = None
+    budget_max: Optional[str] = None
+    require_shipping: bool = False
 
 
 class ItemAnalysisDispatcher:
@@ -73,10 +78,62 @@ class ItemAnalysisDispatcher:
         record = copy.deepcopy(job.final_record)
         item_data = record.get("商品信息", {}) or {}
         record["卖家信息"] = await self._load_seller_info(job)
-        record["ai_analysis"] = await self._build_analysis_result(job, record)
+        record["ai_analysis"] = self._apply_hard_gates(
+            job,
+            record,
+            await self._build_analysis_result(job, record),
+        )
         if await self._saver(record, job.keyword):
             self.completed_count += 1
         await self._notify_if_recommended(item_data, record["ai_analysis"])
+
+    def _apply_hard_gates(
+        self,
+        job: ItemAnalysisJob,
+        record: dict,
+        analysis: dict,
+    ) -> dict:
+        """把底层硬门槛盖在 AI 结论上：模型说能买，也得先过客观事实这一关。"""
+        if not isinstance(analysis, dict) or analysis.get("error"):
+            return analysis
+        if str(analysis.get("analysis_source") or "") == "keyword":
+            return analysis
+
+        item = record.get("商品信息", {}) or {}
+        seller = record.get("卖家信息", {}) or {}
+        try:
+            price = float(str(item.get("当前售价") or "").replace("¥", "").strip())
+        except (TypeError, ValueError):
+            price = None
+
+        gates = evaluate_gates(
+            specs=extract_specs(
+                item.get("商品标题"),
+                item.get("商品描述"),
+                gpu_hint=looks_like_gpu_task(job.keyword, job.task_name),
+            ),
+            price=price,
+            budget_min=job.budget_min,
+            budget_max=job.budget_max,
+            require_shipping=job.require_shipping,
+            allow_professional=task_allows_professional(job.keyword),
+            seller_credit=str(seller.get("卖家信用等级") or ""),
+        )
+        analysis["hard_gates"] = gates.as_list()
+        if not gates.blocked:
+            return analysis
+
+        analysis["is_recommended"] = False
+        analysis["hard_blocked"] = True
+        labels = "、".join(hit.label for hit in gates.blocks)
+        original_reason = str(analysis.get("reason") or "").strip()
+        analysis["reason"] = f"[硬门槛否决]{labels}。" + original_reason
+        risk_tags = list(analysis.get("risk_tags") or [])
+        for hit in gates.blocks:
+            if hit.label not in risk_tags:
+                risk_tags.append(hit.label)
+        analysis["risk_tags"] = risk_tags
+        return analysis
 
     async def _load_seller_info(self, job: ItemAnalysisJob) -> dict:
         seller_info = {}

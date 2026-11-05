@@ -11,11 +11,15 @@ from datetime import datetime
 from statistics import median
 from typing import Any, Iterable, Optional
 
+from src.domain.scoring.specs import extract_specs, looks_like_gpu_task
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
 
 PRICE_HISTORY_DIR = "price_history"
 DEFAULT_HISTORY_WINDOW_DAYS = 30
+
+# 同型号样本少于此数时不给均价：宁可说「样本不足」，也不拿别的型号凑数。
+MIN_MODEL_SAMPLES = 5
 
 
 def normalize_keyword_slug(keyword: str) -> str:
@@ -233,6 +237,114 @@ def _summarize_prices(records: Iterable[dict]) -> dict:
     }
 
 
+def _percentile(ordered: list[float], pct: float) -> float:
+    """线性插值分位数，输入必须是已排序列表。"""
+    if not ordered:
+        return 0.0
+    if len(ordered) == 1:
+        return float(ordered[0])
+    position = (len(ordered) - 1) * pct / 100.0
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return float(ordered[int(position)])
+    low_value = float(ordered[lower])
+    high_value = float(ordered[upper])
+    return low_value + (high_value - low_value) * (position - lower)
+
+
+def _trim_outliers(prices: list[float]) -> list[float]:
+    """按 1.5×IQR 去掉极端值，避免一条挂高价的商品把均价整体拉偏。"""
+    if len(prices) < 5:
+        return list(prices)
+    ordered = sorted(prices)
+    q1 = _percentile(ordered, 25)
+    q3 = _percentile(ordered, 75)
+    spread = q3 - q1
+    if spread <= 0:
+        return ordered
+    low = q1 - 1.5 * spread
+    high = q3 + 1.5 * spread
+    trimmed = [price for price in ordered if low <= price <= high]
+    return trimmed or ordered
+
+
+def _benchmark_stats(prices: list[float], *, scope: str, model_key: str) -> dict:
+    ordered = sorted(prices)
+    trimmed = _trim_outliers(prices)
+    return {
+        "scope": scope,
+        "model_key": model_key,
+        "sample_count": len(prices),
+        "median_price": round(_percentile(ordered, 50), 2),
+        "low_price": round(_percentile(ordered, 25), 2),
+        "high_price": round(_percentile(ordered, 75), 2),
+        "avg_price": round(sum(trimmed) / len(trimmed), 2),
+        "min_price": round(ordered[0], 2),
+        "max_price": round(ordered[-1], 2),
+    }
+
+
+def _insufficient_benchmark(model_key: str, sample_count: int) -> dict:
+    return {
+        "scope": "insufficient",
+        "model_key": model_key,
+        "sample_count": sample_count,
+        "median_price": None,
+        "low_price": None,
+        "high_price": None,
+        "avg_price": None,
+        "min_price": None,
+        "max_price": None,
+    }
+
+
+def build_market_benchmark(
+    market_records: Iterable[dict],
+    title: str | None = None,
+    *,
+    gpu_hint: bool = False,
+) -> Optional[dict]:
+    """算「同型号」价格基准。
+
+    优先用同型号（型号 + 显存）的中位数；同型号样本不够时退到同型号族；
+    都不够就明确返回 ``scope="insufficient"``，绝不跨型号平均。
+    抽不出型号时（手机/笔记本等）才退回关键词口径，保持原行为。
+    """
+    records = [
+        (str(record.get("title") or ""), float(record["price"]))
+        for record in market_records
+        if record.get("price") is not None
+    ]
+    if not records:
+        return None
+
+    specs = extract_specs(title or "", gpu_hint=gpu_hint)
+    family = specs.model_family
+    if not family:
+        if gpu_hint:
+            # 显卡任务里认不出型号，就不能拿「显卡」全类的中位数去比价。
+            return _insufficient_benchmark("", len(records))
+        return _benchmark_stats([price for _title, price in records], scope="keyword", model_key="")
+
+    exact: list[float] = []
+    same_family: list[float] = []
+    for record_title, price in records:
+        record_specs = extract_specs(record_title, gpu_hint=gpu_hint)
+        if not record_specs.model_family or record_specs.model_family != family:
+            continue
+        same_family.append(price)
+        if specs.vram_gb and record_specs.vram_gb == specs.vram_gb:
+            exact.append(price)
+
+    exact_key = f"{family}_{specs.vram_gb}g" if specs.vram_gb else family
+    if len(exact) >= MIN_MODEL_SAMPLES:
+        return _benchmark_stats(exact, scope="model", model_key=exact_key)
+    if len(same_family) >= MIN_MODEL_SAMPLES:
+        return _benchmark_stats(same_family, scope="family", model_key=family)
+    return _insufficient_benchmark(exact_key, len(same_family))
+
+
 def _build_daily_trend(snapshots: list[dict]) -> list[dict]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for snapshot in snapshots:
@@ -276,6 +388,8 @@ def build_item_price_context(
     item_id: str,
     current_price: Optional[float],
     market_snapshots: Optional[list[dict]] = None,
+    title: Optional[str] = None,
+    gpu_hint: bool = False,
 ) -> dict:
     if not item_id:
         return {"observation_count": 0, "deal_score": None, "deal_label": "暂无数据"}
@@ -293,13 +407,16 @@ def build_item_price_context(
         [record for record in source_snapshots if str(record.get("run_id") or "") == latest_run_id],
         "item_id",
     )
-    market_summary = _summarize_prices(latest_market)
-    market_avg = market_summary.get("avg_price")
-    market_median = market_summary.get("median_price")
+    item_title = title or str(latest_item_snapshot.get("title") or "")
+    benchmark = build_market_benchmark(latest_market, item_title, gpu_hint=gpu_hint) or {}
+    market_avg = benchmark.get("avg_price")
+    # 比价一律用中位数：它不会被单条挂高价的商品带偏。
+    market_reference = benchmark.get("median_price")
+    insufficient = benchmark.get("scope") == "insufficient"
 
     score = 50
-    if price_now is not None and market_avg:
-        score += int(((market_avg - price_now) / market_avg) * 60)
+    if price_now is not None and market_reference:
+        score += int(((market_reference - price_now) / market_reference) * 60)
     if price_now is not None and historical_prices:
         historical_max = max(historical_prices)
         if historical_max > 0:
@@ -314,6 +431,8 @@ def build_item_price_context(
     if change_amount is not None and previous_price:
         change_percent = round(change_amount / previous_price * 100, 2)
 
+    deal_label = "样本不足" if insufficient else _resolve_deal_label(score)
+
     return {
         "observation_count": len(historical_prices),
         "current_price": price_now,
@@ -324,11 +443,19 @@ def build_item_price_context(
         "first_seen_at": item_snapshots[0].get("snapshot_time"),
         "last_seen_at": latest_item_snapshot.get("snapshot_time"),
         "market_avg_price": market_avg,
-        "market_median_price": market_median,
+        "market_median_price": market_reference,
+        "market_low_price": benchmark.get("low_price"),
+        "market_high_price": benchmark.get("high_price"),
+        "market_sample_count": benchmark.get("sample_count"),
+        "market_scope": benchmark.get("scope"),
+        "market_model_key": benchmark.get("model_key") or "",
+        "market_note": (
+            "同型号样本不足，不做比价" if insufficient else ""
+        ),
         "price_change_amount": change_amount,
         "price_change_percent": change_percent,
         "deal_score": score,
-        "deal_label": _resolve_deal_label(score),
+        "deal_label": deal_label,
     }
 
 
@@ -338,23 +465,43 @@ def build_market_reference(
     item: dict,
     current_market_items: list[dict],
     historical_snapshots: list[dict],
+    gpu_hint: Optional[bool] = None,
 ) -> dict:
+    item_title = str(item.get("商品标题") or "")
+    if gpu_hint is None:
+        gpu_hint = looks_like_gpu_task(keyword)
     current_market_records = []
     for market_item in current_market_items:
         price = parse_price_value(market_item.get("当前售价"))
         if price is None:
             continue
-        current_market_records.append({"price": price})
+        current_market_records.append(
+            {"price": price, "title": str(market_item.get("商品标题") or "")}
+        )
 
-    market_snapshot = _summarize_prices(current_market_records)
+    market_benchmark = (
+        build_market_benchmark(current_market_records, item_title, gpu_hint=gpu_hint)
+        or _insufficient_benchmark("", 0)
+    )
     history_summary = _summarize_prices(_dedupe_latest(historical_snapshots, "item_id"))
     item_context = build_item_price_context(
         historical_snapshots,
         item_id=str(item.get("商品ID") or ""),
         current_price=parse_price_value(item.get("当前售价")),
+        title=item_title,
+        gpu_hint=gpu_hint,
     )
     return {
-        "当前搜索样本": market_snapshot,
+        "当前搜索样本": {
+            "sample_count": market_benchmark.get("sample_count"),
+            "avg_price": market_benchmark.get("avg_price"),
+            "median_price": market_benchmark.get("median_price"),
+            "min_price": market_benchmark.get("min_price"),
+            "max_price": market_benchmark.get("max_price"),
+            "scope": market_benchmark.get("scope"),
+            "model_key": market_benchmark.get("model_key") or "",
+            "comparable": market_benchmark.get("scope") in {"model", "family"},
+        },
         "历史价格概览": history_summary,
         "本商品价格位置": item_context,
         "关键词": keyword,

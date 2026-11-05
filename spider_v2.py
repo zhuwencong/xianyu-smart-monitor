@@ -8,12 +8,15 @@ import contextlib
 import re
 
 from src.config import STATE_FILE
+from src.core.temp_env import ensure_writable_temp_dir
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.scraper import scrape_xianyu
 from src.domain.models.task_outcome import TaskSkippedError
 
 
 async def main():
+    # Playwright 起浏览器前先确认临时目录可写，否则整轮任务会直接 EPERM 退出。
+    ensure_writable_temp_dir(os.path.dirname(os.path.abspath(__file__)))
     parser = argparse.ArgumentParser(
         description="闲鱼商品监控脚本，支持多任务配置和实时AI分析。",
         epilog="""

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-xianyu-monitor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "闲鱼智能监控 × DeepSeek Harness：把本机监控服务的候选商品、任务与运行记录接入 DSH。",
   "type": "module",
   "main": "index.js",

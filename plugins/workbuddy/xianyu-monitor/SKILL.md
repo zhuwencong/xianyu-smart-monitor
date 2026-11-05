@@ -14,7 +14,7 @@ examples_en:
   - "What did my Xianyu monitor find today?"
   - "Why has the GPU task produced nothing for two days?"
 allowed-tools: Bash, Read
-version: 0.1.0
+version: 0.1.1
 author: 闲鱼智能监控 Contributors
 ---
 
@@ -70,7 +70,20 @@ author: 闲鱼智能监控 Contributors
 - **不匹配**：不符合需求，除非用户明确要放宽条件，否则不要推荐。
 - **AI 分析失败**：模型调用出错，**不代表商品不合格**，不要把它当作「不好」来汇报。
 
-`ai_score` 是 0-100 的综合评分（匹配 / 价格 / 卖家 / 凭证四维加权）。排序默认 `smart`，已经按评分与判断优先级排好，通常不需要重排。
+`ai_score` 是 0-100 的综合评分（匹配 32% / 价格 30% / 卖家 18% / 凭证 20%，再用模型自评做 25% 微调）。排序默认 `smart`，已经按评分与判断优先级排好，通常不需要重排。
+
+### 硬门槛与比价口径（重要）
+
+服务端在 AI 结论之上还有一层**不可协商的硬门槛**，技能返回的字段已经包含结论，不要自己二次推断：
+
+- `hard_blocked` 为 `true`：商品被客观事实否决（型号不对、显存不足、矿卡、维修史、超预算、仅限自提等）。
+  这类一定不要推荐，直接说明 `hard_gates` 里 `severity=block` 的那条原因。
+- `hard_gates` 里 `severity=warn` 的只是提示（如「仅限自提」「物流未知」），可以提醒用户，但不构成否决。
+- **「不匹配」有两种来源**：AI 判断的，或硬门槛否决的。要区分就看 `hard_blocked`。
+- `market.comparable` 为 `false` 或 `market.scope=insufficient` 时，**表示没有同型号样本**，
+  这时禁止说「低于市场均价 / 很便宜」，只能说「同型号样本不足，无法比价」。
+  只有 `comparable=true` 才能引用 `market.avg`（它是同型号中位数，不是算术平均）。
+- `specs` 是抽出来的客观规格（型号 / 显存 / 卡型），解释「为什么型号不对」时用得上。
 
 `missing_checks` 是 AI 明确指出的「待核实项」，回答「这个能不能买」时必须引用它，而不是自己编理由。
 `risk_tags` 是风险标签，出现「无购买凭证」「无烤机测试图」「成色伊拉克」这类标签时要主动提示。
@@ -100,4 +113,6 @@ author: 闲鱼智能监控 Contributors
 | `HTTP 401` | 用户开了 `WEB_STRICT_AUTH=true`；本技能不带登录态，请让用户关闭严格模式或在浏览器里操作 |
 | `HTTP 422` | `create` 参数不合法（AI 模式缺 description、关键词模式缺 keyword-rules、cron 表达式错） |
 | `HTTP 404` 且是 `task_id` 相关 | 任务 ID 不存在，先跑 `tasks` 确认 |
+| 账号「登录失效」 | 让用户重新扫码；`status` 里 `accounts[].status=needs_update` |
+| 账号「上次运行失败」 | 登录态没问题，让用户去查 `runs` / 任务日志，**不要**叫他重扫 |
 | 输出中文乱码 | 该环境不支持 UTF-8 控制台；用 `--raw` 前先 `chcp 65001`，或让用户直接在 Web UI 看 |

@@ -1290,6 +1290,12 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                 item_data["浏览量"] = await safe_get(
                                     item_do, "browseCnt", default="-"
                                 )
+                                # 详情页描述：底层硬门槛（矿卡/维修/仅自提等）需要它判断
+                                description_text = await safe_get(
+                                    item_do, "desc", default=""
+                                )
+                                if description_text:
+                                    item_data["商品描述"] = str(description_text)
                                 # ...[此处可添加更多从详情页解析出的商品信息]...
 
                                 user_id = await safe_get(seller_do, "sellerId")
@@ -1329,6 +1335,9 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                         seller_id=str(user_id) if user_id else None,
                                         zhima_credit_text=zhima_credit_text,
                                         registration_duration_text=registration_duration_text,
+                                        budget_min=min_price,
+                                        budget_max=max_price,
+                                        require_shipping=bool(free_shipping),
                                     )
                                 )
 

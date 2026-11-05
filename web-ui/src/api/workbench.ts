@@ -57,12 +57,19 @@ export interface Candidate {
   recommended: boolean
   analysis_source: string
   ai_failed: boolean
+  /** 底层硬门槛是否否决了这条候选（否决后分数封顶 40，且不会推送） */
+  hard_blocked?: boolean
+  hard_gates?: { key: string; label: string; detail: string; severity: string }[]
+  specs?: { model: string; vram_gb: number | null; card_class: string }
   market: {
     avg: number | null
     low: number | null
     high: number | null
     samples: number | null
     label: string | null
+    /** model / family 才代表同型号可比价，其它口径不参与评分 */
+    scope?: string | null
+    comparable?: boolean
   }
 }
 
@@ -155,13 +162,18 @@ export interface AccountHealth {
   updated_at: string
   updated_label: string
   age_days: number
-  status: 'ok' | 'needs_update'
+  /** warning = 登录态可用，但上一轮实际运行失败（非登录原因） */
+  status: 'ok' | 'warning' | 'needs_update'
   status_label: string
   reason: string
   last_failure_at?: string | null
   last_failure_label?: string
   last_success_at?: string | null
   last_success_label?: string
+  last_run_status?: 'ok' | 'failed' | 'none'
+  last_run_at?: string | null
+  last_run_label?: string
+  last_run_reason?: string
 }
 
 export interface WorkbenchSummary {

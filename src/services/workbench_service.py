@@ -12,6 +12,16 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+from src.domain.scoring import (
+    breakdown_payload,
+    evaluate_gates,
+    extract_specs,
+    price_score,
+    resolve_overall,
+    resolve_verdict,
+    task_allows_professional,
+)
+from src.domain.scoring.specs import looks_like_gpu_task
 from src.failure_guard import FailureGuard
 from src.infrastructure.config.env_manager import env_manager
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
@@ -189,22 +199,6 @@ def _missing_checks(analysis: dict[str, Any], criteria: list[dict[str, Any]], ri
     return deduped[:3]
 
 
-def _ai_verdict(analysis: dict[str, Any], criteria: list[dict[str, Any]], analysis_source: str) -> str:
-    if analysis.get("error") or (not analysis and analysis_source != "keyword"):
-        return "failed"
-    if analysis.get("is_recommended") is True:
-        return "recommend"
-    has_fail = any(item["status"] == "FAIL" for item in criteria)
-    risk_tags = " ".join(str(tag) for tag in (analysis.get("risk_tags") or []))
-    strong_risk = any(
-        keyword in risk_tags
-        for keyword in ("矿卡", "商家", "贩子", "翻新", "魔改", "售出不退", "诈骗", "维修")
-    )
-    if has_fail or strong_risk:
-        return "mismatch"
-    return "verify"
-
-
 def _task_lookup(tasks: Iterable[Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     by_filename: dict[str, Any] = {}
     by_name: dict[str, Any] = {}
@@ -284,31 +278,33 @@ def _average(values: list[int], default: int) -> int:
     return round(sum(values) / len(values)) if values else default
 
 
-def _price_score(price: float | None, insight: dict[str, Any], ai_value_score: Any) -> int:
-    market_avg = insight.get("market_avg_price") or insight.get("avg_price")
-    try:
-        market_avg = float(market_avg) if market_avg is not None else None
-    except (TypeError, ValueError):
-        market_avg = None
-    if price and market_avg and market_avg > 0:
-        ratio = price / market_avg
-        if ratio <= 0.8:
-            return 95
-        if ratio <= 0.9:
-            return 88
-        if ratio <= 0.98:
-            return 82
-        if ratio <= 1.05:
-            return 75
-        if ratio <= 1.15:
-            return 62
-        if ratio <= 1.3:
-            return 48
-        return 35
-    try:
-        return max(0, min(100, int(ai_value_score))) if ai_value_score is not None else 70
-    except (TypeError, ValueError):
-        return 70
+def _build_gates(
+    *,
+    task: Any | None,
+    keyword: str,
+    product: dict[str, Any],
+    seller: dict[str, Any],
+    price: float | None,
+):
+    """按任务配置 + 商品客观事实算硬门槛。任务配置只提供参数，判定逻辑在底层。"""
+    title = str(product.get("商品标题") or "")
+    description = str(product.get("商品描述") or "")
+    gpu_hint = looks_like_gpu_task(getattr(task, "keyword", ""), keyword, title)
+    specs = extract_specs(title, description, gpu_hint=gpu_hint)
+    gates = evaluate_gates(
+        specs=specs,
+        price=price,
+        budget_min=getattr(task, "min_price", None),
+        budget_max=getattr(task, "max_price", None),
+        require_shipping=bool(getattr(task, "free_shipping", False)),
+        allow_professional=task_allows_professional(
+            getattr(task, "keyword", ""),
+            getattr(task, "description", ""),
+            keyword,
+        ),
+        seller_credit=str(seller.get("卖家信用等级") or ""),
+    )
+    return specs, gates
 
 
 def _score_breakdown(
@@ -318,6 +314,7 @@ def _score_breakdown(
     price: float | None,
     insight: dict[str, Any],
     verdict: str,
+    gates=None,
 ) -> tuple[int | None, list[dict[str, Any]]]:
     if analysis.get("error") or not analysis:
         return None, []
@@ -337,24 +334,20 @@ def _score_breakdown(
         ("history", "battery_health", "warranty", "accessories", "condition", "shipping"),
         60,
     )
-    price_score = _price_score(price, insight, analysis.get("value_score"))
-    weighted = match * 0.3 + price_score * 0.3 + seller * 0.2 + evidence * 0.2
-    try:
-        ai_value = float(analysis.get("value_score")) if analysis.get("value_score") is not None else None
-    except (TypeError, ValueError):
-        ai_value = None
-    overall = round(ai_value * 0.45 + weighted * 0.55) if ai_value is not None else round(weighted)
-    if verdict == "mismatch":
-        overall = min(overall, 58)
-    elif verdict == "verify":
-        overall = min(overall, 74)
-    overall = max(0, min(100, overall))
-    return overall, [
-        {"key": "match", "label": "匹配", "value": max(0, min(100, match))},
-        {"key": "price", "label": "价格", "value": max(0, min(100, price_score))},
-        {"key": "seller", "label": "卖家", "value": max(0, min(100, seller))},
-        {"key": "evidence", "label": "凭证", "value": max(0, min(100, evidence))},
-    ]
+    price_dimension, _price_source = price_score(price, insight, analysis.get("value_score"))
+    dimensions = {
+        "match": match,
+        "price": price_dimension,
+        "seller": seller,
+        "evidence": evidence,
+    }
+    overall = resolve_overall(
+        dimensions=dimensions,
+        ai_value_score=analysis.get("value_score"),
+        verdict=verdict,
+        gates=gates,
+    )
+    return overall, breakdown_payload(dimensions)
 
 
 def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
@@ -367,7 +360,24 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
     criteria = _criteria_list(analysis)
     risk_tags = [str(tag) for tag in (analysis.get("risk_tags") or []) if str(tag).strip()]
     analysis_source = str(row["analysis_source"] or analysis.get("analysis_source") or "")
-    verdict = _ai_verdict(analysis, criteria, analysis_source)
+    price_value = float(row["price"]) if row["price"] is not None else None
+    specs, gates = _build_gates(
+        task=task,
+        keyword=str(row["keyword"] or ""),
+        product=product,
+        seller=seller,
+        price=price_value,
+    )
+    analysis_failed = bool(analysis.get("error")) or (
+        not analysis and analysis_source != "keyword"
+    )
+    verdict = resolve_verdict(
+        analysis_failed=analysis_failed,
+        ai_recommended=analysis.get("is_recommended") is True,
+        criteria=criteria,
+        risk_tags=risk_tags,
+        gates=gates,
+    )
     images = [str(url) for url in (product.get("商品图片列表") or []) if str(url).strip()]
     main_image = str(product.get("商品主图链接") or (images[0] if images else ""))
     if main_image and main_image not in images:
@@ -380,6 +390,13 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
             analysis.get("value_summary") or analysis.get("reason") or "",
             220,
         )
+    if gates.blocked:
+        # 硬门槛否决时，AI 的溢美之词不能占满「判断依据」，必须先说清楚为什么被否。
+        blocked_text = "；".join(f"{hit.label}：{hit.detail}" for hit in gates.blocks)
+        evidence = _strip_text(
+            f"底层硬门槛否决：{blocked_text}。{('原判断：' + evidence) if evidence else ''}",
+            220,
+        )
     if not evidence:
         evidence = "AI 尚未给出完整判断，可打开详情查看原始依据。"
 
@@ -388,19 +405,51 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         score = int(score) if score is not None else None
     except (TypeError, ValueError):
         score = None
-    price_value = float(row["price"]) if row["price"] is not None else None
     overall_score, score_breakdown = _score_breakdown(
         analysis,
         criteria,
         price=price_value,
         insight=insight,
         verdict=verdict,
+        gates=gates,
     )
 
     review_status = str(row["review_status"] or "unseen")
     if review_status not in REVIEW_LABELS:
         review_status = "unseen"
 
+    market_median = insight.get("market_median_price")
+    market_scope = insight.get("market_scope")
+    comparable = market_scope in {"model", "family"}
+    if comparable:
+        market_block = {
+            "avg": market_median,
+            "low": insight.get("market_low_price"),
+            "high": insight.get("market_high_price"),
+            "samples": insight.get("market_sample_count"),
+            "label": insight.get("deal_label"),
+        }
+    elif market_scope == "insufficient" or specs.model_family:
+        # 型号认得出来、或后端已明确判定「同型号样本不足」：宁可空缺，
+        # 也不把跨型号均价摆出来当「市场价」。
+        market_block = {
+            "avg": None,
+            "low": None,
+            "high": None,
+            "samples": insight.get("market_sample_count"),
+            "label": insight.get("market_note") or "同型号样本不足",
+        }
+    else:
+        # 手机/笔记本这类抽不出型号的品类，保留原有的关键词口径。
+        market_block = {
+            "avg": insight.get("market_avg_price") or insight.get("avg_price"),
+            "low": insight.get("min_price"),
+            "high": insight.get("max_price"),
+            "samples": insight.get("observation_count"),
+            "label": insight.get("deal_label"),
+        }
+    market_block["scope"] = market_scope
+    market_block["comparable"] = comparable
     task_id = getattr(task, "id", None)
     task_name = getattr(task, "task_name", None) or _normalize_task_name(row["task_name"])
     return {
@@ -445,16 +494,17 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         "risk_tags": risk_tags,
         "missing_checks": _missing_checks(analysis, criteria, risk_tags),
         "criteria": criteria,
-        "recommended": analysis.get("is_recommended") is True,
+        "recommended": analysis.get("is_recommended") is True and not gates.blocked,
         "analysis_source": analysis_source,
         "ai_failed": verdict == "failed",
-        "market": {
-            "avg": insight.get("market_avg_price") or insight.get("avg_price"),
-            "low": insight.get("min_price"),
-            "high": insight.get("max_price"),
-            "samples": insight.get("observation_count"),
-            "label": insight.get("deal_label"),
+        "hard_blocked": gates.blocked,
+        "hard_gates": gates.as_list(),
+        "specs": {
+            "model": specs.model_family,
+            "vram_gb": specs.vram_gb,
+            "card_class": specs.card_class,
         },
+        "market": market_block,
     }
 
 
@@ -613,6 +663,10 @@ def _parse_log_runs(task_id: int, task_name: str, *, is_running: bool = False) -
         login_failed = ("登录失效/重定向" in chunk) or ("Login required" in chunk)
         browser_closed = ("浏览器意外关闭" in chunk) or ("异常退出" in chunk)
         normal_end = "正常结束" in chunk
+        runtime_failure = ""
+        for line in chunk.splitlines():
+            if any(marker in line for marker in RUNTIME_FAILURE_MARKERS):
+                runtime_failure = RUN_TIMESTAMP_RE.sub("", line).strip()
 
         if login_failed:
             status = "failed"
@@ -620,6 +674,11 @@ def _parse_log_runs(task_id: int, task_name: str, *, is_running: bool = False) -
         elif browser_closed:
             status = "partial" if saved else "failed"
             error = "浏览器意外关闭，运行未完整结束。"
+        elif runtime_failure:
+            # 例如 BrowserType.launch: EPERM（临时目录不可写）——把真实原因带出来，
+            # 不要只说「日志中没有找到完整的结束标记」。
+            status = "partial" if saved else "failed"
+            error = _strip_text(runtime_failure, 200)
         elif normal_end:
             status = "completed" if saved else "no_new"
             error = None
@@ -836,13 +895,47 @@ def _state_dir() -> str:
 
 ACCOUNT_PATH_RE = re.compile(r"使用登录状态\s+([^\s\r\n]+\.json)", re.IGNORECASE)
 
+# 登录态失效：只有这一类才需要「重新扫码」
+LOGIN_FAILURE_MARKERS = (
+    "登录失效/重定向",
+    "Login required",
+    "跳转到登录页",
+    "登录状态文件不存在",
+    "未找到可用的登录状态文件",
+)
+# 其它运行失败：登录态可能没问题，失败原因在别处（浏览器起不来、风控、磁盘等）
+RUNTIME_FAILURE_MARKERS = (
+    "本次尝试失败",
+    "因异常而终止",
+    "已暂停重试",
+    "FAIL_SYS_USER_VALIDATE",
+    "BrowserType.launch",
+    "net::ERR_",
+)
+
+EVENT_OK = "ok"
+EVENT_LOGIN = "login"
+EVENT_RUNTIME = "runtime"
+
 
 def _account_name_from_path(path: str) -> str:
     return os.path.splitext(os.path.basename(path.replace("\\", "/")))[0]
 
 
+def _classify_failure_line(line: str) -> str | None:
+    if any(marker in line for marker in LOGIN_FAILURE_MARKERS):
+        return EVENT_LOGIN
+    if any(marker in line for marker in RUNTIME_FAILURE_MARKERS):
+        return EVENT_RUNTIME
+    return None
+
+
 def _collect_account_events_from_logs() -> dict[str, dict[str, Any]]:
-    """从历史运行日志中恢复每个账号最近一次成功/登录失效事件。"""
+    """从历史运行日志恢复每个账号最近一次运行事件。
+
+    按行跟踪「当前生效账号」：轮换重试时一个 chunk 里会依次出现 acc_1、acc_2，
+    谁那条线上失败就记在谁头上，成功的那次也不会被前面的失败盖掉。
+    """
     events: dict[str, dict[str, Any]] = {}
     log_paths = glob.glob(os.path.join("logs", "*.log"))
     for log_path in log_paths:
@@ -854,40 +947,53 @@ def _collect_account_events_from_logs() -> dict[str, dict[str, Any]]:
         except OSError:
             continue
         for chunk in RUN_SPLIT_RE.split(text)[1:]:
-            account_match = ACCOUNT_PATH_RE.search(chunk)
-            if not account_match:
-                continue
-            name = _account_name_from_path(account_match.group(1))
             timestamps = [_parse_dt(value) for value in RUN_TIMESTAMP_RE.findall(chunk)]
             timestamps = [value for value in timestamps if value]
             if not timestamps:
                 continue
             started = timestamps[0]
             finished = timestamps[-1]
-            failed_at = None
-            failure_line = None
+
+            current_account: str | None = None
+            failures: dict[str, dict[str, Any]] = {}
+            seen_accounts: list[str] = []
             for line in chunk.splitlines():
-                if "登录失效/重定向" not in line and "Login required" not in line:
+                account_match = ACCOUNT_PATH_RE.search(line)
+                if account_match:
+                    current_account = _account_name_from_path(account_match.group(1))
+                    if current_account not in seen_accounts:
+                        seen_accounts.append(current_account)
                     continue
-                match = RUN_TIMESTAMP_RE.search(line)
-                failed_at = _parse_dt(match.group(1)) if match else finished
-                failure_line = line.strip()
-                break
-            if failed_at is None and (
-                "登录失效/重定向" in chunk or "Login required" in chunk
-            ):
-                failed_at = finished
-            event = {
-                "name": name,
-                "status": "failed" if failed_at else "ok",
-                "at": failed_at or finished,
-                "started_at": started,
-                "reason": _strip_text(failure_line, 180) if failure_line else "",
-                "log_file": os.path.basename(log_path),
-            }
-            current = events.get(name)
-            if current is None or event["at"] > current["at"]:
-                events[name] = event
+                kind = _classify_failure_line(line)
+                if kind is None or not current_account:
+                    continue
+                stamp = RUN_TIMESTAMP_RE.search(line)
+                at = _parse_dt(stamp.group(1)) if stamp else finished
+                failures[current_account] = {
+                    "name": current_account,
+                    "kind": kind,
+                    "status": "failed",
+                    "at": at or finished,
+                    "started_at": started,
+                    "reason": _strip_text(line, 180),
+                    "log_file": os.path.basename(log_path),
+                }
+
+            if not seen_accounts:
+                continue
+            for name in seen_accounts:
+                event = failures.get(name) or {
+                    "name": name,
+                    "kind": EVENT_OK,
+                    "status": "ok",
+                    "at": finished,
+                    "started_at": started,
+                    "reason": "",
+                    "log_file": os.path.basename(log_path),
+                }
+                current = events.get(name)
+                if current is None or event["at"] > current["at"]:
+                    events[name] = event
     return events
 
 
@@ -922,24 +1028,54 @@ def list_account_health() -> list[dict[str, Any]]:
         reason = ""
         last_failure_at = None
         last_success_at = None
+        last_run_status = "none"
+        last_run_at = None
+        last_run_reason = ""
+        run_failed = False
         if event:
-            if event["status"] == "ok":
-                last_success_at = _iso(event["at"])
-            else:
-                last_failure_at = _iso(event["at"])
+            kind = event.get("kind") or (
+                EVENT_OK if event.get("status") == "ok" else EVENT_LOGIN
+            )
+            last_run_at = _iso(event["at"])
+            if kind == EVENT_OK:
+                last_run_status = "ok"
+                last_success_at = last_run_at
+            elif kind == EVENT_LOGIN:
+                last_failure_at = last_run_at
+                last_run_status = "failed"
+                last_run_reason = event.get("reason") or "登录失效"
                 # 扫码/重新导入登录态会更新文件 mtime；之后视为已自动恢复。
                 if modified.timestamp() > event["at"].timestamp() + 120:
                     last_failure_at = None
                     last_success_at = _iso(modified)
+                    last_run_status = "ok"
+                    last_run_reason = ""
                 else:
                     needs_update = True
                     reason = f"{_short_time(last_failure_at)} 检测到登录失效，请重新扫码登录。"
+            else:
+                # 非登录原因的失败：登录态可能没问题，但绝不能显示成「运行正常」。
+                last_run_status = "failed"
+                last_run_reason = event.get("reason") or "运行异常"
+                run_failed = True
         if not valid:
             needs_update = True
             reason = "登录态文件无法读取，请重新扫码登录。"
         elif stale and not last_failure_at:
             needs_update = True
             reason = f"登录态已 {age_days} 天未更新，请确认是否仍有效。"
+
+        if needs_update:
+            status = "needs_update"
+            status_label = "需要更新"
+        elif run_failed:
+            status = "warning"
+            status_label = "上次运行失败"
+            reason = f"{_short_time(last_run_at)} 运行失败（不是登录问题）：{_strip_text(last_run_reason, 120)}"
+        else:
+            status = "ok"
+            status_label = "可用"
+
         accounts.append(
             {
                 "name": name,
@@ -947,20 +1083,25 @@ def list_account_health() -> list[dict[str, Any]]:
                 "updated_at": modified.replace(microsecond=0).isoformat(),
                 "updated_label": _short_time(modified.isoformat()),
                 "age_days": age_days,
-                "status": "needs_update" if needs_update else "ok",
-                "status_label": "需要更新" if needs_update else "可用",
+                "status": status,
+                "status_label": status_label,
                 "reason": reason,
                 "last_failure_at": last_failure_at,
                 "last_failure_label": _short_time(last_failure_at) if last_failure_at else "",
                 "last_success_at": last_success_at,
                 "last_success_label": _short_time(last_success_at) if last_success_at else "",
+                "last_run_status": last_run_status,
+                "last_run_at": last_run_at,
+                "last_run_label": _short_time(last_run_at) if last_run_at else "",
+                "last_run_reason": _strip_text(last_run_reason, 220),
             }
         )
-    # 失效账号排在最前，带失效时间的优先。
+    # 需要重扫的排最前，其次上次运行失败的，最后正常的。
+    status_rank = {"needs_update": 0, "warning": 1, "ok": 2}
     accounts.sort(
         key=lambda item: (
-            0 if item["status"] == "needs_update" else 1,
-            -_timestamp(item.get("last_failure_at")),
+            status_rank.get(item["status"], 3),
+            -_timestamp(item.get("last_failure_at") or item.get("last_run_at")),
             item["name"],
         )
     )
@@ -1033,6 +1174,19 @@ def build_issues(
                     "action_label": "重新扫码",
                     "action_route": "/accounts?action=scan",
                     "severity": "warning",
+                }
+            )
+        elif account["status"] == "warning":
+            # 登录态没问题，但上一轮实际跑失败了：不能悄悄当成正常。
+            issues.append(
+                {
+                    "id": f"account-run-{account['name']}",
+                    "type": "account",
+                    "title": f"账号 {account['name']} 上次运行失败",
+                    "detail": account.get("reason") or account.get("last_run_reason") or "请查看任务日志。",
+                    "action_label": "查看任务",
+                    "action_route": "/tasks",
+                    "severity": "info",
                 }
             )
     if ai_failures:

@@ -53,6 +53,30 @@ function healthOf(name: string): AccountHealth | null {
   return healthMap.value[name] || null
 }
 
+function statusClass(status?: string) {
+  if (status === 'needs_update') return 'border-[#F0D3A2] bg-[#FFF8EC] text-[#A75B09]'
+  if (status === 'warning') return 'border-[#F1C9C3] bg-[#FDF3F2] text-[#B03A2E]'
+  return 'border-[#BFE8D7] bg-[#EAF8F2] text-[#0C7A56]'
+}
+
+function runTextClass(status?: string) {
+  if (status === 'needs_update') return 'font-medium leading-relaxed text-[#A75B09]'
+  if (status === 'warning') return 'font-medium leading-relaxed text-[#B03A2E]'
+  return 'leading-relaxed text-[#6F849F]'
+}
+
+function runSummary(name: string): string {
+  const health = healthOf(name)
+  if (!health) return '暂无运行记录'
+  if (health.status === 'needs_update') return health.reason || '请重新扫码登录'
+  if (health.status === 'warning') {
+    const when = health.last_run_label ? ` ${health.last_run_label}` : ''
+    const why = health.last_run_reason ? `：${health.last_run_reason}` : ''
+    return `上次运行失败${when}${why}（登录态本身有效）`
+  }
+  return health.last_success_label ? `最近运行正常 ${health.last_success_label}` : '暂无运行记录'
+}
+
 async function launchLogin(account?: string) {
   const key = account || 'auto'
   if (launchingAccount.value) return
@@ -241,19 +265,14 @@ onMounted(() => {
                 <h3 class="truncate text-base font-semibold text-slate-900">{{ account.name }}</h3>
                 <span
                   class="rounded-md border px-2 py-1 text-[10px] font-bold"
-                  :class="healthOf(account.name)?.status === 'needs_update'
-                    ? 'border-[#F0D3A2] bg-[#FFF8EC] text-[#A75B09]'
-                    : 'border-[#BFE8D7] bg-[#EAF8F2] text-[#0C7A56]'"
+                  :class="statusClass(healthOf(account.name)?.status)"
                 >
                   {{ healthOf(account.name)?.status_label || '可用' }}
                 </span>
               </div>
               <p class="break-all text-sm text-slate-500">{{ account.path }}</p>
-              <p v-if="healthOf(account.name)?.status === 'needs_update'" class="text-[11px] font-medium text-[#A75B09]">
-                {{ healthOf(account.name)?.reason }}
-              </p>
-              <p v-else-if="healthOf(account.name)?.last_success_label" class="text-[11px] text-[#6F849F]">
-                最近一次运行正常：{{ healthOf(account.name)?.last_success_label }}
+              <p class="text-[11px]" :class="runTextClass(healthOf(account.name)?.status)">
+                {{ runSummary(account.name) }}
               </p>
             </div>
             <div class="mt-4 flex flex-wrap gap-2">
@@ -280,7 +299,7 @@ onMounted(() => {
                 <TableHead>{{ t('accounts.list.name') }}</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>{{ t('accounts.list.file') }}</TableHead>
-                <TableHead>最近失效 / 成功</TableHead>
+                <TableHead>最近运行</TableHead>
                 <TableHead class="text-right">{{ t('accounts.list.actions') }}</TableHead>
               </TableRow>
             </TableHeader>
@@ -296,20 +315,15 @@ onMounted(() => {
                 <TableCell>
                   <span
                     class="inline-flex rounded-md border px-2 py-1 text-[10px] font-bold"
-                    :class="healthOf(account.name)?.status === 'needs_update'
-                      ? 'border-[#F0D3A2] bg-[#FFF8EC] text-[#A75B09]'
-                      : 'border-[#BFE8D7] bg-[#EAF8F2] text-[#0C7A56]'"
+                    :class="statusClass(healthOf(account.name)?.status)"
                   >
                     {{ healthOf(account.name)?.status_label || '可用' }}
                   </span>
                 </TableCell>
                 <TableCell class="text-sm text-gray-500">{{ account.path }}</TableCell>
-                <TableCell class="max-w-[260px] text-xs">
-                  <p v-if="healthOf(account.name)?.status === 'needs_update'" class="font-medium leading-relaxed text-[#A75B09]">
-                    {{ healthOf(account.name)?.reason }}
-                  </p>
-                  <p v-else class="text-[#6F849F]">
-                    {{ healthOf(account.name)?.last_success_label ? `最近运行正常 ${healthOf(account.name)?.last_success_label}` : '暂无运行记录' }}
+                <TableCell class="max-w-[320px] text-xs">
+                  <p :class="runTextClass(healthOf(account.name)?.status)">
+                    {{ runSummary(account.name) }}
                   </p>
                 </TableCell>
                 <TableCell class="text-right">

@@ -3,6 +3,8 @@
 整合所有路由和服务
 """
 from contextlib import asynccontextmanager
+import os
+
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -33,7 +35,13 @@ from src.services.task_generation_service import TaskGenerationService
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.infrastructure.config.settings import settings as app_settings
+from src.core.temp_env import ensure_writable_temp_dir
 from src.api.web_auth import install_web_auth, validate_web_binding
+
+
+# 项目根目录（只在启动时用，不能在这里做文件系统探测：import 副作用会让测试
+# 收集和嵌入式调用一起变慢，甚至被挂死的 TEMP 拖住）。
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # 全局服务实例
@@ -104,6 +112,9 @@ set_task_generation_service(task_generation_service)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    # 服务与它派生的爬虫子进程共用同一份环境：临时目录不可写会让 Playwright 直接 EPERM。
+    # 放在启动阶段而不是 import 阶段，探测超时也只会拖慢启动，不会卡住测试收集。
+    ensure_writable_temp_dir(_PROJECT_DIR)
     validate_web_binding(app_settings)
     # 启动时
     print("正在启动应用...")

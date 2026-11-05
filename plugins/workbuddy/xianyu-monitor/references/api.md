@@ -56,7 +56,7 @@
     "ai_label": "建议关注",
     "ai_score": 89,
     "ai_value_score": 88,
-    "ai_summary": "当前售价 208 元，远低于市场均价…",
+    "ai_summary": "当前售价 208 元，同型号中位 526 元…",
     "ai_reason": "...",
     "missing_checks": ["专业卡游戏性能较弱"],
     "risk_tags": ["显存仅2GB"],
@@ -66,10 +66,34 @@
     "crawl_time": "2026-11-02T00:32:51", "crawl_label": "11-02 00:32",
     "location": "湖南", "link": "https://www.goofish.com/item?id=1097810856010",
     "review_status": "unseen", "review_label": "未查看",
-    "market": { "avg": 526.98, "low": 300, "high": 700, "samples": 12, "label": "明显低于均价" }
+    "recommended": false,
+    "hard_blocked": true,
+    "hard_gates": [
+      { "key": "professional_card", "label": "专业卡/计算卡", "detail": "识别为专业卡或计算卡，不属于消费级显卡", "severity": "block" },
+      { "key": "pickup_note", "label": "仅限自提", "detail": "商品明确仅限自提，异地交易存在风险", "severity": "warn" }
+    ],
+    "specs": { "model": "Quadro P620", "vram_gb": 2, "card_class": "professional" },
+    "market": {
+      "avg": 526.98, "low": 430, "high": 640, "samples": 12,
+      "label": "明显低于中位价",
+      "scope": "model",
+      "comparable": true
+    }
   }]
 }
 ```
+
+字段口径（0.1.1 起）：
+
+| 字段 | 说明 |
+|---|---|
+| `hard_blocked` | 命中 `severity=block` 的硬门槛 → 判断强制「不匹配」、分数封顶 40、不推送 |
+| `hard_gates` | 命中的门槛列表；`block` 是否决，`warn` 只是提示 |
+| `specs` | 从标题/描述抽出的客观规格：型号、显存、卡型 |
+| `recommended` | `is_recommended && !hard_blocked`，比 `ai_label` 更严格 |
+| `market.scope` | `model` / `family` / `insufficient`；只有前两者且 `samples>=5` 才算可比价 |
+| `market.comparable` | `true` 才允许引用 `avg`（同型号**中位数**，不是算术平均） |
+| `market.label` | 样本不足时会变成「同型号样本不足」之类的说明 |
 
 注意 `id`（数据库自增）与 `item_id`（闲鱼商品 ID）不是一回事。`mark` 用的是 `item_id`。
 
@@ -136,9 +160,39 @@
 { "pending_count": 2, "issues": [{ "type": "account", "title": "...", "severity": "warning" }] }
 ```
 
+账号相关的 issue 有两种标题，处理方式不同：
+- `账号 acc_3 登录失效` → 需要重新扫码
+- `账号 acc_3 上次运行失败` → 登录态没坏，去查任务日志
+
 ### `GET /api/workbench/accounts`
 
-账号健康度：`status` 为 `ok` / `needs_update`。
+账号健康度，三态：
+
+| `status` | 含义 | 该做什么 |
+|---|---|---|
+| `ok` | 可用 | 无需处理 |
+| `warning` | 登录态可用，但**上一轮运行失败**（非登录原因） | 查该账号相关任务日志，不用重扫 |
+| `needs_update` | 登录态失效 / 文件读不了 / 太久没更新 | 重新扫码或重新导入 |
+
+```json
+{
+  "items": [{
+    "name": "acc_3",
+    "file": "acc_3.json",
+    "status": "warning",
+    "status_label": "上次运行失败",
+    "reason": "11-05 09:12 运行失败（不是登录问题）：BrowserType.launch: EPERM…",
+    "last_failure_at": null,
+    "last_success_at": "2026-11-04T10:07:56",
+    "last_run_status": "failed",
+    "last_run_at": "2026-11-05T09:12:03",
+    "last_run_label": "11-05 09:12",
+    "last_run_reason": "..."
+  }]
+}
+```
+
+`last_run_status` 取值为 `ok` / `failed` / `none`。
 
 ## 任务控制
 

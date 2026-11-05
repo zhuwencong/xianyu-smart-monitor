@@ -104,7 +104,9 @@ def test_candidates_dedupe_and_filters(tmp_path, monkeypatch):
     latest = next(item for item in result["items"] if item["item_id"] == "1097137892689")
     assert latest["ai_verdict"] == "recommend"
     assert latest["missing_checks"] == ["运行测试材料"]
-    assert latest["market"]["avg"] == 727
+    # 这条记录没有同型号样本（market_scope 缺失），跨型号均价不再当作「市场价」展示。
+    assert latest["market"]["avg"] is None
+    assert latest["market"]["comparable"] is False
     assert latest["crawl_time"] == "2026-11-03T20:24:28"
     assert latest["ai_score"] is not None
     assert [item["label"] for item in latest["score_breakdown"]] == ["匹配", "价格", "卖家", "凭证"]
@@ -154,6 +156,77 @@ def test_task_run_service_records_completion_and_stale_runs(tmp_path, monkeypatc
     again = service.finish_run(active_run, exit_code=0)
     assert again is not None
     assert again["status"] == "failed"
+
+
+def test_account_health_flags_runtime_failure_instead_of_reporting_ok(tmp_path, monkeypatch):
+    """上一轮因浏览器起不来而失败，绝不能显示成「最近运行正常」。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ACCOUNT_STATE_DIR", "state")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    account_file = state_dir / "acc_1.json"
+    account_file.write_text('{"cookie":"demo"}', encoding="utf-8")
+    os.utime(account_file, (1793678400, 1793678400))  # 2026-11-03 12:00
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "task_1.log").write_text(
+        "\n".join(
+            [
+                "--- 开始执行监控任务 ---",
+                "账号轮换：使用登录状态 state\\acc_1.json",
+                "[ 2026-11-05 13:12:49] [预筛] 已启用标题过滤：必含 ['gt8']",
+                "[ 2026-11-05 13:12:49] 本次尝试失败: Error: BrowserType.launch: EPERM: operation not permitted, mkdtemp 'C:\\Temp\\playwright-artifacts-XXXXXX'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    accounts = list_account_health()
+    assert len(accounts) == 1
+    account = accounts[0]
+    assert account["status"] == "warning"
+    assert account["status_label"] == "上次运行失败"
+    assert account["last_run_status"] == "failed"
+    assert "BrowserType.launch" in account["last_run_reason"]
+    # 登录态本身没坏，所以不能要求重新扫码
+    assert account["last_failure_at"] is None
+    assert "运行失败" in account["reason"]
+
+
+def test_account_health_attributes_rotation_failures_per_account(tmp_path, monkeypatch):
+    """一轮里先 acc_1 失败、再轮换到 acc_2 成功，两个账号的状态必须分开。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ACCOUNT_STATE_DIR", "state")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    for name in ("acc_1", "acc_2"):
+        path = state_dir / f"{name}.json"
+        path.write_text('{"cookie":"demo"}', encoding="utf-8")
+        os.utime(path, (1793678400, 1793678400))
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "task_1.log").write_text(
+        "\n".join(
+            [
+                "--- 开始执行监控任务 ---",
+                "账号轮换：使用登录状态 state\\acc_1.json",
+                "[ 2026-11-05 13:12:41] 检测到登录失效/重定向: Login required",
+                "将尝试轮换账号后重试...",
+                "账号轮换：使用登录状态 state\\acc_2.json",
+                "[ 2026-11-05 13:13:20] [预筛] 已启用标题过滤：必含 ['gt8']",
+                "[ 2026-11-05 13:14:02] 本次运行共处理了 4 个新商品",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    accounts = {item["name"]: item for item in list_account_health()}
+    assert accounts["acc_1"]["status"] == "needs_update"
+    assert accounts["acc_1"]["last_failure_at"] is not None
+    assert accounts["acc_2"]["status"] == "ok"
+    assert accounts["acc_2"]["last_run_status"] == "ok"
 
 
 def test_account_health_uses_login_failure_time(tmp_path, monkeypatch):

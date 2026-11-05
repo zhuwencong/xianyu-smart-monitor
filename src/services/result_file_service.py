@@ -2,6 +2,7 @@
 结果记录富化与文件名校验服务
 """
 
+from src.domain.scoring.specs import looks_like_gpu_task
 from src.infrastructure.persistence.storage_names import normalize_keyword_from_filename
 from src.services.price_history_service import (
     build_item_price_context,
@@ -17,10 +18,12 @@ def validate_result_filename(filename: str) -> None:
 
 
 def enrich_records_with_price_insight(records: list[dict], filename: str) -> list[dict]:
-    snapshots = load_price_snapshots(normalize_keyword_from_filename(filename))
+    keyword = normalize_keyword_from_filename(filename)
+    snapshots = load_price_snapshots(keyword)
     if not snapshots:
         return records
 
+    gpu_hint = looks_like_gpu_task(keyword)
     visible_item_ids = load_visible_result_item_ids(filename)
     visible_snapshots = [
         snapshot
@@ -36,6 +39,8 @@ def enrich_records_with_price_insight(records: list[dict], filename: str) -> lis
             item_id=str(info.get("商品ID") or ""),
             current_price=parse_price_value(info.get("当前售价")),
             market_snapshots=visible_snapshots,
+            title=str(info.get("商品标题") or ""),
+            gpu_hint=gpu_hint,
         )
         enriched.append(clone)
     return enriched

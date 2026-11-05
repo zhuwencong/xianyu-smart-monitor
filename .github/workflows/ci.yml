@@ -25,7 +25,7 @@ jobs:
       - name: 禁止提交的路径
         run: |
           set -e
-          forbidden='^(\.env$|\.env\..*|state/|data/|logs/|images/|jsonl/|price_history/|config\.json$|cookies\.tmp$)'
+          forbidden='^(\.env$|\.env\..*|state/|data/|logs/|images/|jsonl/|price_history/|config\.json$|cookies\.tmp$|\.tmp/|pytest-of-[^/]+/)'
           if git ls-files | grep -Ev '^\.env\.example$' | grep -E "$forbidden"; then
             echo "::error::检测到不应提交的运行时文件或凭据文件"
             exit 1
@@ -62,6 +62,11 @@ jobs:
           grep -q '^author:' plugins/workbuddy/xianyu-monitor/SKILL.md
           python3 -c "import ast,pathlib; ast.parse(pathlib.Path('plugins/workbuddy/xianyu-monitor/scripts/xy.py').read_text(encoding='utf-8'))"
           echo "OK: 技能包结构与 frontmatter 必填字段齐全"
+
+      - name: Python 语法检查（含维护脚本）
+        run: |
+          python3 -m compileall -q src scripts
+          echo "OK: src 与 scripts 均可编译"
 
   backend:
     name: 后端测试 (Python 3.11)

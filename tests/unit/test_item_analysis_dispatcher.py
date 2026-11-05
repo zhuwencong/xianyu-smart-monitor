@@ -129,3 +129,76 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
     asyncio.run(run())
     assert saved_records[0]["ai_analysis"]["analysis_source"] == "keyword"
     assert saved_records[0]["ai_analysis"]["is_recommended"] is True
+
+
+def test_dispatcher_hard_gates_override_ai_recommendation():
+    """模型说能买，硬门槛说不行 —— 落盘和通知都必须以硬门槛为准。"""
+    saved_records = []
+    notifications = []
+
+    async def seller_loader(user_id: str):
+        return {"卖家信用等级": "卖家信用优秀"}
+
+    async def image_downloader(product_id: str, image_urls: list[str], task_name: str):
+        return []
+
+    async def ai_analyzer(record: dict, image_paths: list[str], prompt_text: str):
+        return {
+            "analysis_source": "ai",
+            "is_recommended": True,
+            "reason": "商品为半高专业卡，价格极具性价比",
+            "value_score": 88,
+            "risk_tags": ["显存仅2GB"],
+            "keyword_hit_count": 0,
+        }
+
+    async def notifier(item_data: dict, reason: str):
+        notifications.append(reason)
+
+    async def saver(record: dict, keyword: str):
+        saved_records.append(record)
+        return True
+
+    async def run():
+        dispatcher = ItemAnalysisDispatcher(
+            concurrency=1,
+            skip_ai_analysis=False,
+            seller_loader=seller_loader,
+            image_downloader=image_downloader,
+            ai_analyzer=ai_analyzer,
+            notifier=notifier,
+            saver=saver,
+        )
+        dispatcher.submit(
+            ItemAnalysisJob(
+                keyword="显卡",
+                task_name="显卡监控（AI）",
+                decision_mode="ai",
+                analyze_images=False,
+                prompt_text="prompt",
+                keyword_rules=(),
+                final_record={
+                    "商品信息": {
+                        "商品ID": "1097810856010",
+                        "商品标题": "NVIDIA Quadro P620专业显卡，2G显存，半高设计，包邮",
+                        "当前售价": "¥208",
+                    },
+                    "卖家信息": {},
+                },
+                seller_id="seller-1",
+                zhima_credit_text="优秀",
+                registration_duration_text="来闲鱼1年",
+                budget_max="1000",
+            )
+        )
+        await dispatcher.join()
+
+    asyncio.run(run())
+
+    analysis = saved_records[0]["ai_analysis"]
+    assert analysis["is_recommended"] is False
+    assert analysis["hard_blocked"] is True
+    assert analysis["reason"].startswith("[硬门槛否决]")
+    assert "专业卡/计算卡" in analysis["risk_tags"]
+    assert notifications == []
+

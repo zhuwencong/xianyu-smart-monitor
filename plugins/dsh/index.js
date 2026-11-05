@@ -132,6 +132,15 @@ function cleanLink(link) {
   return match ? `https://www.goofish.com/item?id=${match[1]}` : raw.split('?')[0]
 }
 
+/** 把硬门槛的 block 条目拼成一句人话；warn 不参与否决，不在这里出现。 */
+function gateSummary(item) {
+  const blocks = (item.hard_gates || []).filter((hit) => hit && hit.severity === 'block')
+  if (blocks.length === 0) return ''
+  return blocks
+    .map((hit) => (hit.detail ? `${hit.label}：${hit.detail}` : hit.label))
+    .join('；')
+}
+
 function renderCandidates(value) {
   const lines = [
     `候选商品：共 ${value.total} 条，第 ${value.page} 页（每页 ${value.limit} 条）。`,
@@ -142,11 +151,25 @@ function renderCandidates(value) {
   }
   for (const item of value.items) {
     const score = item.ai_score == null ? '—' : item.ai_score
+    const specs =
+      item.specs && item.specs.model
+        ? `｜${item.specs.model}${item.specs.vram_gb ? ` ${item.specs.vram_gb}G` : ''}`
+        : ''
+    // 只有同型号（或同型号族）样本才配叫「市场价」，其它口径一律不展示。
+    const market =
+      item.market && item.market.comparable && item.market.avg
+        ? `｜同型号中位 ${money(item.market.avg)}（${item.market.samples ?? '?'} 样本）`
+        : ''
+    const verdict = item.hard_blocked ? '不匹配 · 硬门槛否决' : item.ai_label || item.ai_verdict
     lines.push(
       [
-        `- [${item.ai_label || item.ai_verdict}] ${item.title}`,
-        `  ${money(item.price)}｜评分 ${score}｜${item.task_name}`,
-        item.ai_summary ? `  依据：${truncate(item.ai_summary, 160)}` : '',
+        `- [${verdict}] ${item.title}`,
+        `  ${money(item.price)}｜评分 ${score}｜${item.task_name}${specs}${market}`,
+        item.hard_blocked
+          ? `  否决原因：${gateSummary(item) || '命中底层硬门槛（详见 hard_gates）'}`
+          : item.ai_summary
+            ? `  依据：${truncate(item.ai_summary, 160)}`
+            : '',
         item.link ? `  ${cleanLink(item.link)}` : '',
       ]
         .filter(Boolean)
@@ -158,6 +181,31 @@ function renderCandidates(value) {
       `状态计数：未查看 ${value.counts.unseen ?? 0}｜已收藏 ${value.counts.favorite ?? 0}｜已处理 ${value.counts.handled ?? 0}`,
     )
   }
+  return lines.join('\n')
+}
+
+function renderStatus(value) {
+  const accounts = value.accounts || []
+  const needsUpdate = accounts.filter((item) => item.status === 'needs_update')
+  const runFailed = accounts.filter((item) => item.status === 'warning')
+  const lines = [
+    `任务 ${value.task_count} 个（启用 ${value.enabled_task_count}，运行中 ${value.running_count}）`,
+    `今日新增候选 ${value.today_count} 条｜待处理 ${value.pending_count} 项`,
+    `账号 ${value.account_count} 个，异常 ${value.account_alert_count} 个`,
+  ]
+  if (needsUpdate.length > 0) {
+    lines.push(`需要重新扫码：${needsUpdate.map((item) => item.name).join('、')}`)
+  }
+  if (runFailed.length > 0) {
+    lines.push(
+      `登录态正常但上次运行失败：${runFailed.map((item) => item.name).join('、')}（查任务日志，不用重扫）`,
+    )
+  }
+  lines.push(
+    `AI：${value.ai_configured ? `已配置（${value.ai_model || '未命名模型'}）` : '未配置'}`,
+    `通知：${value.notification_configured ? '已配置渠道' : '未配置任何渠道'}`,
+    value.daily_report_enabled ? `每日日报：${value.daily_report_hour} 点` : '每日日报：关闭',
+  )
   return lines.join('\n')
 }
 
@@ -204,17 +252,7 @@ export function apply(ctx, rawConfig) {
             notification_configured: { type: 'boolean' },
           },
         },
-        render: (_args, value) =>
-          text(
-            [
-              `任务 ${value.task_count} 个（启用 ${value.enabled_task_count}，运行中 ${value.running_count}）`,
-              `今日新增候选 ${value.today_count} 条｜待处理 ${value.pending_count} 项`,
-              `账号 ${value.account_count} 个，异常 ${value.account_alert_count} 个`,
-              `AI：${value.ai_configured ? `已配置（${value.ai_model || '未命名模型'}）` : '未配置'}`,
-              `通知：${value.notification_configured ? '已配置渠道' : '未配置任何渠道'}`,
-              value.daily_report_enabled ? `每日日报：${value.daily_report_hour} 点` : '每日日报：关闭',
-            ].join('\n'),
-          ),
+        render: (_args, value) => text(renderStatus(value)),
       },
       async execute(_args, exec) {
         return request(config, '/api/workbench/summary', { exec })
@@ -226,7 +264,7 @@ export function apply(ctx, rawConfig) {
     defineTool({
       name: 'xianyu_list_candidates',
       description:
-        '列出闲鱼监控抓到的候选商品，支持按人工处理状态、AI 判断、任务、关键词、排序方式筛选。用户问「有什么值得看的」「今天抓到了什么」「把需核实的列出来」时使用。',
+        '列出闲鱼监控抓到的候选商品，支持按人工处理状态、AI 判断、任务、关键词、排序方式筛选。返回里 hard_blocked=true 表示被底层硬门槛一票否决（分数封顶、不会推送），market.comparable=false 表示没有同型号样本、不能拿来比价。用户问「有什么值得看的」「今天抓到了什么」「把需核实的列出来」时使用。',
       parameters: {
         review_status: {
           type: 'string',
@@ -254,6 +292,7 @@ export function apply(ctx, rawConfig) {
             page: { type: 'number' },
             limit: { type: 'number' },
             items: { type: 'array' },
+            counts: { type: 'object', additionalProperties: true },
           },
         },
         render: (_args, value) => text(renderCandidates(value)),

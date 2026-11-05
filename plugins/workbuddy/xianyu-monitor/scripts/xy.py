@@ -259,6 +259,17 @@ def main(argv: list[str]) -> int:
                     }
                     for issue in (data.get("issues") or [])
                 ],
+                # ok / warning（上次运行失败，不用重扫） / needs_update（要重新扫码）
+                "accounts": [
+                    {
+                        "name": account.get("name"),
+                        "status": account.get("status"),
+                        "status_label": account.get("status_label"),
+                        "last_run_status": account.get("last_run_status"),
+                        "reason": clip(account.get("reason") or account.get("last_run_reason"), 100),
+                    }
+                    for account in (data.get("accounts") or [])
+                ],
             }
         )
         return 0

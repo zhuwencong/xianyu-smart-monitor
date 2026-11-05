@@ -98,6 +98,10 @@ acc_*
 .workbuddy/
 .backups/
 verify_search.png
+pytest-of-*/
 
 # --- 发布产物（本地生成，不进仓库）---
 release/
+
+# 本地临时目录（服务/爬虫兜底，DSH 会话内也会用到）
+.tmp/

@@ -76,6 +76,21 @@ dsh --profile demo
 - 「显卡任务为什么没结果？」→ `xianyu_list_tasks` → `xianyu_task_runs`
 - 「把这条标成已收藏」→ `xianyu_set_candidate_status`
 
+## 候选商品字段口径（0.1.1 起）
+
+服务端在 AI 结论之上加了一层**不可协商的硬门槛**，插件把结果原样暴露，别自己重新解释：
+
+| 字段 | 含义 | 怎么用 |
+|---|---|---|
+| `hard_blocked` | 是否被硬门槛否决（型号不对、显存不足、矿卡、维修、超预算、仅自提等） | 为 `true` 时不要推荐，直接说否决原因 |
+| `hard_gates` | 命中的门槛列表，`severity` 为 `block`（否决）或 `warn`（提示） | 只把 `block` 当否决；`warn` 可以提醒但不必拦 |
+| `specs` | 抽出来的客观规格：`model` / `vram_gb` / `card_class` | 用来解释「为什么型号不对」 |
+| `market.comparable` | 是否有**同型号**样本可作比价基准 | 为 `false` 时禁止说「低于市场均价」 |
+| `market.scope` | `model` / `family` / `insufficient` | `insufficient` 就是样本不足 |
+| `recommended` | 同时要求「AI 推荐」且「未命中硬门槛」 | 比 `ai_label` 更严格，优先用它 |
+
+`ai_label` 的「不匹配」现在有两种来源：AI 判的，或硬门槛否决的。要区分就看 `hard_blocked`。
+
 ## 安全边界
 
 - 只与 `127.0.0.1` 通信，不外传任何数据。
