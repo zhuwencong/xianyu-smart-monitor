@@ -172,6 +172,8 @@ class ItemAnalysisDispatcher:
             "is_recommended": False,
             "reason": reason,
             "keyword_hit_count": 0,
+            # 标记「没分析成」而不是「分析完了判定不要」，存储层据此决定是否下一轮重试。
+            "analysis_error": True,
         }
         if error:
             payload["error"] = error

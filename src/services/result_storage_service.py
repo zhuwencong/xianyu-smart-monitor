@@ -25,6 +25,13 @@ SORT_COLUMN_MAP = {
     "keyword_hit_count": "keyword_hit_count",
 }
 
+# AI 调用失败（网络/超时）最多重试几轮；超过就按“放弃”处理，避免反复消耗额度。
+AI_ERROR_MAX_RETRIES = 3
+
+
+def _is_analysis_error(analysis: dict | None) -> bool:
+    return bool(analysis) and bool(analysis.get("analysis_error"))
+
 
 def _get_link_unique_key(link: str) -> str:
     return link.split("&", 1)[0]
@@ -155,6 +162,7 @@ def _save_result_record_sync(record: dict, keyword: str) -> bool:
     bootstrap_sqlite_storage()
     item = record.get("商品信息", {}) or {}
     analysis = record.get("ai_analysis", {}) or {}
+    record["ai_analysis"] = analysis
     link = str(item.get("商品链接") or "")
     link_unique_key = _get_link_unique_key(link) if link else _fallback_unique_key(record, item)
     keyword_hit_count = analysis.get("keyword_hit_count", 0)
@@ -163,17 +171,70 @@ def _save_result_record_sync(record: dict, keyword: str) -> bool:
     except (TypeError, ValueError):
         keyword_hit_count = 0
 
+    result_filename = build_result_filename(keyword)
+    is_error = _is_analysis_error(analysis)
+
     with sqlite_connection() as conn:
-        conn.execute(
+        existing = conn.execute(
             """
-            INSERT OR IGNORE INTO result_items (
+            SELECT id, raw_json
+            FROM result_items
+            WHERE result_filename = ? AND link_unique_key = ?
+            """,
+            (result_filename, link_unique_key),
+        ).fetchone()
+
+        prev_is_error = False
+        prev_error_count = 0
+        if existing is not None:
+            try:
+                raw_prev = json.loads(existing["raw_json"] or "{}")
+            except (TypeError, ValueError):
+                raw_prev = {}
+            prev_analysis = (raw_prev.get("ai_analysis") or {}) if isinstance(raw_prev, dict) else {}
+            prev_is_error = _is_analysis_error(prev_analysis)
+            try:
+                prev_error_count = int(prev_analysis.get("_error_count") or 0)
+            except (TypeError, ValueError):
+                prev_error_count = 0
+
+        if is_error:
+            # 只有上一轮也是 AI 失败才算“连续失败”，否则重新计数。
+            analysis["_error_count"] = prev_error_count + 1 if prev_is_error else 1
+
+        # 上一轮 AI 失败过：这次无论成败都覆盖旧行，让重试结果真正落地。
+        # 其余情况保持原有 INSERT OR IGNORE 语义，不覆盖已处理记录。
+        sql_head = "INSERT INTO result_items" if prev_is_error else "INSERT OR IGNORE INTO result_items"
+        sql_tail = ""
+        if prev_is_error:
+            sql_tail = """
+            ON CONFLICT(result_filename, link_unique_key) DO UPDATE SET
+                crawl_time = excluded.crawl_time,
+                publish_time = excluded.publish_time,
+                price = excluded.price,
+                price_display = excluded.price_display,
+                item_id = excluded.item_id,
+                title = excluded.title,
+                link = excluded.link,
+                seller_nickname = excluded.seller_nickname,
+                is_recommended = excluded.is_recommended,
+                analysis_source = excluded.analysis_source,
+                keyword_hit_count = excluded.keyword_hit_count,
+                raw_json = excluded.raw_json
+            """
+
+        conn.execute(
+            sql_head
+            + """
+            (
                 result_filename, keyword, task_name, crawl_time, publish_time, price,
                 price_display, item_id, title, link, link_unique_key, seller_nickname,
                 is_recommended, analysis_source, keyword_hit_count, raw_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """
+            + sql_tail,
             (
-                build_result_filename(keyword),
+                result_filename,
                 record.get("搜索关键字", keyword),
                 record.get("任务名称", ""),
                 record.get("爬取时间", ""),
@@ -200,10 +261,29 @@ def load_processed_link_keys(keyword: str) -> set[str]:
     filename = build_result_filename(keyword)
     with sqlite_connection() as conn:
         rows = conn.execute(
-            "SELECT link_unique_key FROM result_items WHERE result_filename = ?",
+            "SELECT link_unique_key, raw_json FROM result_items WHERE result_filename = ?",
             (filename,),
         ).fetchall()
-    return {str(row["link_unique_key"]) for row in rows if row["link_unique_key"]}
+    processed: set[str] = set()
+    for row in rows:
+        key = row["link_unique_key"]
+        if not key:
+            continue
+        # AI 调用失败、且还没到重试上限的商品不算“已处理”，下一轮重新抓一次。
+        try:
+            raw = json.loads(row["raw_json"] or "{}")
+            analysis = (raw.get("ai_analysis") or {}) if isinstance(raw, dict) else {}
+        except (TypeError, ValueError):
+            analysis = {}
+        if _is_analysis_error(analysis):
+            try:
+                error_count = int(analysis.get("_error_count") or 0)
+            except (TypeError, ValueError):
+                error_count = 0
+            if error_count < AI_ERROR_MAX_RETRIES:
+                continue
+        processed.add(str(key))
+    return processed
 
 
 async def list_result_filenames() -> list[str]:
