@@ -115,7 +115,8 @@ jobs:
       - run: npm run build
 
       - name: 确认构建产物存在
-        run: test -f dist/index.html && echo "OK: dist/index.html"
+        run: |
+          test -f dist/index.html && echo "OK: dist/index.html"
 
   docker:
     name: Docker 镜像构建
