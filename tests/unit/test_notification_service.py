@@ -105,7 +105,10 @@ def test_pushplus_client_sends_text_template_and_requires_business_code(monkeypa
         captured["timeout"] = timeout
         return _FakeResponse()
 
-    monkeypatch.setattr("requests.post", _fake_post)
+    monkeypatch.setattr(
+        "src.infrastructure.external.notification_clients.pushplus_client.post_notification",
+        _fake_post,
+    )
     client = PushPlusClient("test-token", "group-code", pcurl_to_mobile=False)
 
     asyncio.run(client.send(_product(), "价格合适"))
@@ -126,7 +129,7 @@ def test_pushplus_client_rejects_business_error_with_http_200(monkeypatch):
             return {"code": 903, "msg": "无效的用户token"}
 
     monkeypatch.setattr(
-        "requests.post",
+        "src.infrastructure.external.notification_clients.pushplus_client.post_notification",
         lambda *args, **kwargs: _FakeResponse(),
     )
     client = PushPlusClient("bad-token", pcurl_to_mobile=False)

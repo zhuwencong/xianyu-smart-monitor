@@ -7,6 +7,12 @@ import signal
 import contextlib
 import re
 
+# 抓取进程也可能被手工从带代理变量的终端拉起；AI 客户端在 import 阶段就实例化，
+# 所以清理动作要排在 src.* 的导入之前。
+from src.core.proxy_env import strip_inherited_proxy_env
+
+strip_inherited_proxy_env(label="抓取进程")
+
 from src.config import STATE_FILE
 from src.core.temp_env import ensure_writable_temp_dir
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository

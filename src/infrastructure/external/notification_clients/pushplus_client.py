@@ -5,7 +5,7 @@ https://www.pushplus.plus
 import asyncio
 import requests
 from typing import Dict
-from .base import NotificationClient
+from .base import NotificationClient, post_notification
 
 
 class PushPlusClient(NotificationClient):
@@ -46,7 +46,7 @@ class PushPlusClient(NotificationClient):
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: requests.post(
+            lambda: post_notification(
                 self.api_url,
                 json=payload,
                 timeout=10,

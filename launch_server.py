@@ -20,10 +20,28 @@ LOG_FILE = os.path.join(LOGS, "server.out")
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
+# 2026-11-09：本机启动会话可能残留 HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:1097，
+# 该代理早已不存在，会让子进程抓图/调大模型全部 ProxyError（连不上代理）。
+# 服务本身直连外网即可，所以起服务前统一清空代理环境变量，避免被父会话污染。
+PROXY_ENV_KEYS = (
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+    "PROXY_URL", "proxy_url",
+)
+
+
+def _strip_proxy_env() -> list[str]:
+    cleared = []
+    for key in PROXY_ENV_KEYS:
+        if os.environ.pop(key, None) is not None:
+            cleared.append(key)
+    return cleared
+
 
 def main() -> int:
     os.makedirs(LOGS, exist_ok=True)
     os.chdir(BASE)
+    cleared = _strip_proxy_env()
 
     exe = os.path.join(BASE, ".venv", "Scripts", "pythonw.exe")
     if not os.path.exists(exe):
@@ -33,6 +51,8 @@ def main() -> int:
 
     with open(LOG_FILE, "ab") as out:
         out.write(b"\n===== launch_server: start =====\n")
+        if cleared:
+            out.write(f"cleared proxy env: {', '.join(cleared)}\n".encode())
         out.flush()
         proc = subprocess.Popen(
             [exe, "-m", "src.app"],

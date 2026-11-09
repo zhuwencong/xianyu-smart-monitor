@@ -2,6 +2,12 @@
 新架构的主应用入口
 整合所有路由和服务
 """
+# 必须放在其它 src 模块之前：AI 客户端 / httpx 在 import 阶段就会读代理环境变量，
+# 一旦继承了失效的 HTTP_PROXY，之后整进程的 AI 调用都是 Connection error。
+from src.core.proxy_env import strip_inherited_proxy_env
+
+strip_inherited_proxy_env(label="服务启动")
+
 from contextlib import asynccontextmanager
 import os
 

@@ -6,7 +6,33 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict
 
+import requests
+
 from src.utils import convert_goofish_link
+
+_DIRECT_SESSION: requests.Session | None = None
+
+
+def direct_session() -> requests.Session:
+    """返回不走系统/环境代理的会话。
+
+    本机系统代理经常指向已退出的本地端口，requests 会从注册表读到它，
+    这是清环境变量治不了的；而通知接口直连外网是通的，所以优先直连。
+    """
+    global _DIRECT_SESSION
+    if _DIRECT_SESSION is None:
+        session = requests.Session()
+        session.trust_env = False
+        _DIRECT_SESSION = session
+    return _DIRECT_SESSION
+
+
+def post_notification(url: str, **kwargs) -> requests.Response:
+    """发送通知请求：优先直连，直连不通再回退到系统代理。"""
+    try:
+        return direct_session().post(url, **kwargs)
+    except requests.RequestException:
+        return requests.post(url, **kwargs)
 
 
 @dataclass(frozen=True)
