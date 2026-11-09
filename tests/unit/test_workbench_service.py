@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 from types import SimpleNamespace
 
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
@@ -236,7 +237,10 @@ def test_account_health_uses_login_failure_time(tmp_path, monkeypatch):
     state_dir.mkdir()
     account_file = state_dir / "acc_1.json"
     account_file.write_text('{"cookie":"demo"}', encoding="utf-8")
-    os.utime(account_file, (1793678400, 1793678400))  # 2026-11-03 12:00
+    # mtime 必须按**本地时区**构造：业务侧把日志里的无时区时间按本地时区解析，
+    # 写死 epoch 秒数会让 UTC 的 CI runner 偏 8 小时，断言直接反向。
+    scanned_at = datetime(2026, 11, 3, 12, 0).timestamp()
+    os.utime(account_file, (scanned_at, scanned_at))
 
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
@@ -259,7 +263,7 @@ def test_account_health_uses_login_failure_time(tmp_path, monkeypatch):
     assert "12:20" in accounts[0]["reason"]
 
     # 重新扫码会更新文件 mtime；晚于失效时间后应恢复为可用。
-    newer = 1793773200  # 2026-11-04 14:20
+    newer = datetime(2026, 11, 4, 14, 20).timestamp()
     os.utime(account_file, (newer, newer))
     recovered = list_account_health()
     assert recovered[0]["status"] == "ok"

@@ -116,7 +116,8 @@ jobs:
 
       - name: 确认构建产物存在
         run: |
-          test -f dist/index.html && echo "OK: dist/index.html"
+          # vite.config.ts 的 outDir 是 ../dist（仓库根目录），不是 web-ui/dist
+          test -f ../dist/index.html && echo "OK: ../dist/index.html"
 
   docker:
     name: Docker 镜像构建
