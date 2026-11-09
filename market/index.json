@@ -66,9 +66,9 @@
       },
       "icon": "icons/xianyu-monitor.svg",
       "author": "闲鱼智能监控 Contributors",
-      "homepage": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/tree/main/plugins/dsh#readme",
+      "homepage": "https://github.com/zhuwencong/xianyu-smart-monitor/tree/main/plugins/dsh#readme",
       "repository": {
-        "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor",
+        "url": "https://github.com/zhuwencong/xianyu-smart-monitor",
         "directory": "plugins/dsh"
       },
       "metadata": {
@@ -88,7 +88,7 @@
           "publishTimestamp": 1793857701,
           "source": {
             "type": "git",
-            "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor",
+            "url": "https://github.com/zhuwencong/xianyu-smart-monitor",
             "commit": "acb5b2d37eb2f7c0d09d10be880803e3742d807b",
             "path": "plugins/dsh"
           },

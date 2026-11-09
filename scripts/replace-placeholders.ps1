@@ -3,7 +3,7 @@
     把仓库里的占位符替换成真实的 GitHub 用户名 / 仓库名 / 署名。
 
 .DESCRIPTION
-    开源模板里的 <GITHUB_USER>、xianyu-smart-monitor、<SECURITY_EMAIL> 等占位符
+    开源模板里的 zhuwencong、xianyu-smart-monitor、<SECURITY_EMAIL> 等占位符
     需要一次性替换。这个脚本只改 git 已跟踪的文本文件（没有 git 时退回目录扫描），
     会跳过 .venv、node_modules、data、logs、state 等运行时目录。
 
@@ -69,7 +69,7 @@ function Get-TargetFiles {
 }
 
 $replacements = [ordered]@{
-    '<GITHUB_USER>' = $GitHubUser
+    'zhuwencong' = $GitHubUser
 }
 
 if ($Repo -ne 'xianyu-smart-monitor') {

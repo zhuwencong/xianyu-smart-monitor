@@ -22,7 +22,7 @@ SHA 与时间戳，从 `git remote get-url origin` 读仓库地址。
 如果选根目录，索引 URL 就是：
 
 ```
-https://<GITHUB_USER>.github.io/xianyu-smart-monitor/market/index.json
+https://zhuwencong.github.io/xianyu-smart-monitor/market/index.json
 ```
 
 `market/icons/xianyu-monitor.svg` 会被相对路径自动解析，无需额外配置。

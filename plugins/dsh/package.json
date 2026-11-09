@@ -21,14 +21,14 @@
     "marketplace",
     "monitor"
   ],
-  "homepage": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/tree/main/plugins/dsh",
+  "homepage": "https://github.com/zhuwencong/xianyu-smart-monitor/tree/main/plugins/dsh",
   "repository": {
     "type": "git",
-    "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git",
+    "url": "https://github.com/zhuwencong/xianyu-smart-monitor.git",
     "directory": "plugins/dsh"
   },
   "bugs": {
-    "url": "https://github.com/<GITHUB_USER>/xianyu-smart-monitor/issues"
+    "url": "https://github.com/zhuwencong/xianyu-smart-monitor/issues"
   },
   "author": "闲鱼智能监控 Contributors",
   "license": "MIT",

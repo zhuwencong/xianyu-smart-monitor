@@ -4,11 +4,11 @@
 
 基于 Playwright 和 AI 的闲鱼多任务实时监控，提供完整的 Web 管理界面。
 
-[![CI](https://github.com/<GITHUB_USER>/xianyu-smart-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/<GITHUB_USER>/xianyu-smart-monitor/actions/workflows/ci.yml)
+[![CI](https://github.com/zhuwencong/xianyu-smart-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuwencong/xianyu-smart-monitor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab.svg)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org/)
-[![Release](https://img.shields.io/github/v/release/<GITHUB_USER>/xianyu-smart-monitor?display_name=tag)](https://github.com/<GITHUB_USER>/xianyu-smart-monitor/releases)
+[![Release](https://img.shields.io/github/v/release/zhuwencong/xianyu-smart-monitor?display_name=tag)](https://github.com/zhuwencong/xianyu-smart-monitor/releases)
 
 > **来源说明**：本项目是 [Usagi-org/ai-goofish-monitor](https://github.com/Usagi-org/ai-goofish-monitor)（MIT，© 2025 dingyufei615）的**衍生版本**，不是从零开始的独立项目。
 > 上游的重构与扩展清单见 [NOTICE](NOTICE) 与 [CHANGELOG](CHANGELOG.md)。上游的版权声明保留在 [LICENSE](LICENSE) 中。
@@ -100,7 +100,7 @@ data/ state/ logs/ images/ prompts/   运行时数据（不进仓库）
 ## 🐳 Docker 部署（推荐）
 
 ```bash
-git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git
+git clone https://github.com/zhuwencong/xianyu-smart-monitor.git
 cd xianyu-smart-monitor
 cp .env.example .env
 vim .env # 填写相关配置项
@@ -208,7 +208,7 @@ docker compose up -d
 - Chrome / Edge 浏览器（Linux 环境也可使用 Chromium；`start.sh` 会先检查浏览器是否存在）
 
 ```bash
-git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git
+git clone https://github.com/zhuwencong/xianyu-smart-monitor.git
 cd xianyu-smart-monitor
 cp .env.example .env
 ```
@@ -444,4 +444,4 @@ AI 模式会先生成分析标准，再创建任务。现在该流程已改为�
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=<GITHUB_USER>/xianyu-smart-monitor&type=Date)](https://www.star-history.com/#<GITHUB_USER>/xianyu-smart-monitor&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=zhuwencong/xianyu-smart-monitor&type=Date)](https://www.star-history.com/#zhuwencong/xianyu-smart-monitor&Date)

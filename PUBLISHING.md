@@ -62,7 +62,7 @@ git commit -m "chore: 初始开源版本 1.0.0"
 
 ### 1.2 填充仓库身份（把占位符换成你的）
 
-README、package.json、市场索引里现在是 `<GITHUB_USER>` 和 `xianyu-smart-monitor`。
+README、package.json、市场索引里现在是 `zhuwencong` 和 `xianyu-smart-monitor`。
 
 ```bash
 # 普通用户（仓库名用默认的 xianyu-smart-monitor）
@@ -267,7 +267,7 @@ git add -A && git commit -m "chore: 刷新市场索引 0.1.1" && git push
 
 - [ ] **改默认密码**：`WEB_PASSWORD` 不要留 `admin123`
 - [ ] **清本地数据**：`data/`、`state/`、`logs/`、`images/` 在你的机器上留着，但确认没进 git
-- [ ] **换占位符**：`scripts/replace-placeholders.ps1`，然后 `grep -r '<GITHUB_USER>' .` 应为空
+- [ ] **换占位符**：`scripts/replace-placeholders.ps1`，然后 `grep -r 'zhuwencong' .` 应为空
 - [ ] **CI 绿灯**：推送后看 Actions，四个 job 全过
 - [ ] **README 截图是新的**：`static/img*.png` 如果是上游旧图，读者会觉得货不对版
 

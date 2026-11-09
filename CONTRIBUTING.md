@@ -11,7 +11,7 @@
 ## 开发环境
 
 ```bash
-git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git
+git clone https://github.com/zhuwencong/xianyu-smart-monitor.git
 cd xianyu-smart-monitor
 cp .env.example .env          # 至少填 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL_NAME
 python -m venv .venv && . .venv/Scripts/activate   # Windows: .venv\Scripts\activate

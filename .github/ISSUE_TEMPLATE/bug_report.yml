@@ -56,7 +56,7 @@ body:
     attributes:
       label: 版本 / commit
       description: 运行 `git rev-parse --short HEAD`，或填写镜像 tag。
-      placeholder: "a1b2c3d 或 ghcr.io/<GITHUB_USER>/xianyu-smart-monitor:latest"
+      placeholder: "a1b2c3d 或 ghcr.io/zhuwencong/xianyu-smart-monitor:latest"
     validations:
       required: true
 

@@ -6,7 +6,7 @@
 
 1. 拿到项目（二选一）
    ```bash
-   git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor.git
+   git clone https://github.com/zhuwencong/xianyu-smart-monitor.git
    cd xianyu-smart-monitor
    ```
    或直接下载 Release 里的压缩包解压。

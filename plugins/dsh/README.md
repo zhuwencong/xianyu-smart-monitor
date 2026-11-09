@@ -23,7 +23,7 @@ dsh plugin --profile demo add dsh-plugin-xianyu-monitor
 dsh plugin --profile demo add ./plugins/dsh
 
 # 从 Git（锁定 commit 更安全）
-dsh plugin --profile demo add github:<GITHUB_USER>/xianyu-smart-monitor#<commit>
+dsh plugin --profile demo add github:zhuwencong/xianyu-smart-monitor#<commit>
 ```
 
 验证这一层被加载：

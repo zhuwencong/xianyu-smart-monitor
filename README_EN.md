@@ -50,7 +50,7 @@ See [plugins/README.md](plugins/README.md) and the [DSH market index](market/).
 - Chrome or Edge on desktop systems. On Linux, Chromium also works. `start.sh` checks this prerequisite before continuing
 
 ```bash
-git clone https://github.com/<GITHUB_USER>/xianyu-smart-monitor
+git clone https://github.com/zhuwencong/xianyu-smart-monitor
 cd xianyu-smart-monitor
 cp .env.example .env
 ```
