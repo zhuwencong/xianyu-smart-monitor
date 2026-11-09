@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { listAccounts, getAccount, createAccount, updateAccount, deleteAccount, launchAccountLogin, type AccountItem } from '@/api/accounts'
@@ -104,6 +104,92 @@ function openCreateDialog() {
   isCreateDialogOpen.value = true
 }
 
+// ---------------------------------------------------------------------------
+// 扫码添加账号：点一下就拉起登录窗口，扫完自动落盘，不用再碰 .bat
+// ---------------------------------------------------------------------------
+const isScanDialogOpen = ref(false)
+const scanAccountName = ref('')
+const scanStatus = ref<'launching' | 'waiting' | 'done' | 'error'>('launching')
+const scanError = ref('')
+let scanTimer: number | null = null
+
+function nextAccountName(): string {
+  const used = new Set(accounts.value.map((item) => item.name))
+  let index = 1
+  while (used.has(`acc_${index}`)) index += 1
+  return `acc_${index}`
+}
+
+function stopScanPolling() {
+  if (scanTimer !== null) {
+    window.clearInterval(scanTimer)
+    scanTimer = null
+  }
+}
+
+function startScanPolling() {
+  stopScanPolling()
+  const startedAt = Date.now()
+  scanTimer = window.setInterval(async () => {
+    if (Date.now() - startedAt > 5 * 60 * 1000) {
+      stopScanPolling()
+      scanStatus.value = 'error'
+      scanError.value = '等待超时。如果浏览器窗口被关掉了，重新点一次「添加账号」即可。'
+      return
+    }
+    try {
+      const list = await listAccounts()
+      if (!list.some((item) => item.name === scanAccountName.value)) return
+      stopScanPolling()
+      scanStatus.value = 'done'
+      await fetchAccounts()
+      toast({
+        title: `已添加 ${scanAccountName.value}`,
+        description: '扫码成功，登录态已保存到 state/ 目录。',
+      })
+      window.setTimeout(() => {
+        isScanDialogOpen.value = false
+      }, 1200)
+    } catch {
+      // 轮询失败不打扰用户，等下一次
+    }
+  }, 3000)
+}
+
+async function startScanAdd() {
+  scanAccountName.value = nextAccountName()
+  scanStatus.value = 'launching'
+  scanError.value = ''
+  isScanDialogOpen.value = true
+  await launchScanWindow()
+}
+
+async function launchScanWindow() {
+  scanStatus.value = 'launching'
+  scanError.value = ''
+  try {
+    const result = await launchAccountLogin(scanAccountName.value)
+    scanAccountName.value = result.account
+    scanStatus.value = 'waiting'
+    startScanPolling()
+  } catch (e) {
+    scanStatus.value = 'error'
+    scanError.value = (e as Error).message
+  }
+}
+
+function closeScanDialog() {
+  stopScanPolling()
+  isScanDialogOpen.value = false
+}
+
+function switchToManualPaste() {
+  closeScanDialog()
+  openCreateDialog()
+}
+
+onBeforeUnmount(stopScanPolling)
+
 async function openEditDialog(name: string) {
   isSaving.value = true
   try {
@@ -201,7 +287,7 @@ onMounted(() => {
         <h1 class="text-2xl font-bold text-gray-800">{{ t('accounts.title') }}</h1>
         <p class="text-sm text-gray-500 mt-1">{{ t('accounts.description') }}</p>
       </div>
-      <Button class="w-full sm:w-auto" @click="openCreateDialog">{{ t('accounts.add') }}</Button>
+      <Button class="w-full sm:w-auto" @click="startScanAdd">{{ t('accounts.add') }}</Button>
     </div>
 
     <div v-if="scanRequested" class="mb-6 rounded-xl border border-[#B9D3F8] bg-[#F2F7FF] p-4">
@@ -212,8 +298,7 @@ onMounted(() => {
         <div class="min-w-0 flex-1">
           <h2 class="text-[15px] font-black text-[#173A6B]">重新扫码登录闲鱼账号</h2>
           <p class="mt-1 text-[12px] leading-relaxed text-[#5A6F8E]">
-            点击 <b>「启动扫码窗口」</b> 会自动打开闲鱼登录页；也可以双击项目根目录的 <b>「登录闲鱼账号.bat」</b>
-            或 <b>「登录剩余账号_批量.bat」</b>。用手机闲鱼扫码确认后，登录态会自动保存到
+            点击 <b>「启动扫码窗口」</b> 会自动打开闲鱼登录页；用手机闲鱼扫码确认后，登录态会自动保存到
             <code class="rounded bg-white px-1 py-0.5">state/</code>。
           </p>
           <div class="mt-3 flex flex-wrap gap-2">
@@ -240,7 +325,7 @@ onMounted(() => {
           <li>{{ t('accounts.cookieGuide.step5') }}</li>
         </ol>
         <p class="mt-3 text-xs text-gray-400">
-          登录脚本：登录闲鱼账号.bat / 登录闲鱼账号_2.bat（均在项目根目录）
+          扫码窗口由本页直接拉起（同一时间只允许一个）；已有 JSON 时也可在弹窗里改用「手动粘贴 JSON」。
         </p>
       </CardContent>
     </Card>
@@ -348,6 +433,53 @@ onMounted(() => {
         </div>
       </CardContent>
     </Card>
+
+    <Dialog v-model:open="isScanDialogOpen" @update:open="(open: boolean) => { if (!open) stopScanPolling() }">
+      <DialogContent class="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>扫码添加账号</DialogTitle>
+          <DialogDescription>
+            已经为你打开闲鱼登录窗口，用手机扫码即可，登录态会自动保存。
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between rounded-lg border border-[#E3EAF4] bg-[#F7FAFE] px-3 py-2 text-sm">
+            <span class="text-[#5A6F8E]">账号名</span>
+            <b class="text-[#173A6B]">{{ scanAccountName }}</b>
+          </div>
+
+          <p v-if="scanStatus === 'launching'" class="flex items-center gap-2 text-sm text-[#40526C]">
+            <span class="h-2 w-2 animate-pulse rounded-full bg-[#2360E6]"></span>
+            正在打开浏览器窗口…
+          </p>
+          <p v-else-if="scanStatus === 'waiting'" class="flex items-center gap-2 text-sm text-[#40526C]">
+            <span class="h-2 w-2 animate-pulse rounded-full bg-[#2360E6]"></span>
+            等待扫码…在浏览器窗口里用手机闲鱼「扫一扫」并确认登录
+          </p>
+          <p v-else-if="scanStatus === 'done'" class="text-sm font-medium text-[#0C7A56]">
+            ✅ 扫码成功，账号已添加，列表正在刷新。
+          </p>
+          <p v-else class="text-sm font-medium text-[#B03A2E]">{{ scanError }}</p>
+
+          <p class="text-[11px] leading-relaxed text-[#8B9AB0]">
+            同一时间只允许一个扫码窗口；没看到浏览器窗口就先关掉旧的再点一次。<br />
+            如果扫到的是已经存在的闲鱼号，脚本不会新增账号文件（会被标记为 .dup），换一个号再扫即可。
+          </p>
+        </div>
+        <DialogFooter class="gap-2">
+          <Button
+            v-if="scanStatus === 'waiting' || scanStatus === 'error'"
+            variant="outline"
+            size="sm"
+            @click="launchScanWindow"
+          >
+            重新打开窗口
+          </Button>
+          <Button variant="outline" size="sm" @click="switchToManualPaste">手动粘贴 JSON</Button>
+          <Button size="sm" @click="closeScanDialog">关闭</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog v-model:open="isCreateDialogOpen">
       <DialogContent class="sm:max-w-[700px]">

@@ -164,19 +164,19 @@ const enUSExtra = {
   },
   accounts: {
     title: 'Goofish Accounts',
-    description: 'Double-click the login script in the project root and scan the QR code; the login state is saved to state/ automatically.',
+    description: 'Click "+ Add Account" to open the scan window directly; the login state is saved to state/ automatically.',
     add: '+ Add Account',
     cookieGuide: {
       title: 'How to Add a Goofish Account',
       step1Prefix:
-        'Double-click "登录闲鱼账号.bat" in the project root (use "登录闲鱼账号_2.bat" for the second account). A browser opens the Goofish login page automatically. No browser extension is required.',
+        'Click "+ Add Account" in the top-right corner. The app opens the Goofish login page for you — no browser extension, no .bat file needed.',
       extension: '',
-      step2Prefix: 'In the Goofish app, tap "Scan" at the top-left of the home page and scan the QR code on the right side of the browser window.',
+      step2Prefix: 'In the Goofish app, tap "Scan" at the top-left of the home page and scan the QR code in the browser window.',
       website: '',
-      step3: 'Tap "Confirm login" on your phone. The script saves the login state automatically; no copy-paste needed.',
-      step4: 'Refresh this page and the new account shows up in the list below. You can also add one manually via "Add Account".',
+      step3: 'Tap "Confirm login" on your phone. The dialog shows "Done" and the login state is saved automatically.',
+      step4: 'The account list refreshes by itself. You can also switch to "Paste JSON manually" from the dialog.',
       step5:
-        'Multiple accounts: run the matching script for each one and make sure to scan with the phone that is signed in to that account. Which account gets captured depends on the phone, not on the file name.',
+        'Multiple accounts: scan with the phone that is signed in to that account. Which account gets captured depends on the phone, not on the file name.',
     },
     list: {
       title: 'Account List',
