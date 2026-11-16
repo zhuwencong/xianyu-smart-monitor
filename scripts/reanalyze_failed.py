@@ -345,7 +345,14 @@ def main() -> int:
     )
     parser.add_argument("--notify", action="store_true", help="对推荐结果推送通知（默认关闭）")
     parser.add_argument("--dry-run", action="store_true", help="只列出待处理记录，不调用 AI、不写库")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="确认写库；与 --dry-run 互斥，仅用于和 backfill_price_insight.py 保持同一套用法",
+    )
     args = parser.parse_args()
+    if args.apply and args.dry_run:
+        parser.error("--apply 与 --dry-run 只能选一个")
     return asyncio.run(run(args))
 
 

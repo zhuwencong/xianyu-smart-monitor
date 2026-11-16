@@ -1,11 +1,16 @@
-<#
+﻿<#
 .SYNOPSIS
     把仓库里的占位符替换成真实的 GitHub 用户名 / 仓库名 / 署名。
 
 .DESCRIPTION
-    开源模板里的 zhuwencong、xianyu-smart-monitor、<SECURITY_EMAIL> 等占位符
+    开源模板里的 <GITHUB_USER>、xianyu-smart-monitor、<SECURITY_EMAIL> 等占位符
     需要一次性替换。这个脚本只改 git 已跟踪的文本文件（没有 git 时退回目录扫描），
     会跳过 .venv、node_modules、data、logs、state 等运行时目录。
+
+    注意：脚本会跳过**自己**和 scripts/build-market-index.mjs。
+    这两个文件里的 <GITHUB_USER> 是「未填」判定的哨兵值，不能被替换掉，
+    否则第二次运行就失去了检测能力（曾经踩过：哨兵被换成真实用户名后，
+    市场索引生成器开始把真实仓库地址当成占位符拒绝）。
 
 .EXAMPLE
     pwsh -File scripts/replace-placeholders.ps1 -GitHubUser yourname
@@ -48,6 +53,18 @@ $TextExtensions = @(
 function Get-TargetFiles {
     param([string]$Root)
 
+    # 哨兵文件：绝不改写（见 .DESCRIPTION）
+    $SentinelFiles = @(
+        'scripts/replace-placeholders.ps1',
+        'scripts/build-market-index.mjs'
+    )
+
+    $isSentinel = {
+        param([string]$Path)
+        $relative = $Path.Substring($Root.Length).TrimStart('\', '/').Replace('\', '/')
+        $SentinelFiles -contains $relative
+    }
+
     if (Test-Path (Join-Path $Root '.git')) {
         Push-Location $Root
         try {
@@ -57,19 +74,21 @@ function Get-TargetFiles {
             Pop-Location
         }
         if ($tracked) {
-            return $tracked | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ }
+            return $tracked |
+                ForEach-Object { Join-Path $Root $_ } |
+                Where-Object { (Test-Path -LiteralPath $_) -and -not (& $isSentinel $_) }
         }
     }
 
     Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object {
         $relative = $_.FullName.Substring($Root.Length).TrimStart('\', '/')
         $segments = $relative -split '[\\/]'
-        -not ($segments | Where-Object { $ExcludeDirs -contains $_ })
+        (-not ($segments | Where-Object { $ExcludeDirs -contains $_ })) -and -not (& $isSentinel $_.FullName)
     } | ForEach-Object { $_.FullName }
 }
 
 $replacements = [ordered]@{
-    'zhuwencong' = $GitHubUser
+    '<GITHUB_USER>' = $GitHubUser
 }
 
 if ($Repo -ne 'xianyu-smart-monitor') {
