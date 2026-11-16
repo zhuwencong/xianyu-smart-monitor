@@ -79,17 +79,17 @@
           "local"
         ],
         "sortKeys": {
-          "updated": 1794223801
+          "updated": 1794836154
         }
       },
       "versions": [
         {
           "version": "0.1.2",
-          "publishTimestamp": 1794223801,
+          "publishTimestamp": 1794836154,
           "source": {
             "type": "git",
             "url": "https://github.com/zhuwencong/xianyu-smart-monitor",
-            "commit": "ef350316f5b7633f36183c9f591e639098f52b6f",
+            "commit": "4a57805f79c6b4584b6353a1832771dbb0a9068f",
             "path": "plugins/dsh"
           },
           "engines": {
