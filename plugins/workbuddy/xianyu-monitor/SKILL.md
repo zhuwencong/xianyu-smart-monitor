@@ -14,7 +14,7 @@ examples_en:
   - "What did my Xianyu monitor find today?"
   - "Why has the GPU task produced nothing for two days?"
 allowed-tools: Bash, Read
-version: 0.1.1
+version: 0.1.2
 author: 闲鱼智能监控 Contributors
 ---
 
@@ -69,6 +69,8 @@ author: 闲鱼智能监控 Contributors
 - **需核实**：方向对但缺关键信息（如电池健康、维修史、烤机图），要提醒用户「买前必问」。
 - **不匹配**：不符合需求，除非用户明确要放宽条件，否则不要推荐。
 - **AI 分析失败**：模型调用出错，**不代表商品不合格**，不要把它当作「不好」来汇报。
+  这类商品会被标记为 `analysis_error` 并在后续轮次自动重试（最多 3 轮）；如果连续几天都是失败，
+  更可能是代理/网络问题（见 `references/install.md` 的排查表），让用户查启动日志，不要急着换模型。
 
 `ai_score` 是 0-100 的综合评分（匹配 32% / 价格 30% / 卖家 18% / 凭证 20%，再用模型自评做 25% 微调）。排序默认 `smart`，已经按评分与判断优先级排好，通常不需要重排。
 
