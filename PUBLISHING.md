@@ -29,7 +29,7 @@
 | Issue / PR 模板 | ✅ 新增 | Bug、功能、PR 三套 |
 | CI | ✅ 新增 | 敏感信息扫描 + pytest + 前端构建 + Docker + 插件校验 |
 | 插件与市场 | ✅ 新增 | `plugins/dsh`、`plugins/workbuddy`、`market/`、发布脚本 |
-| 仓库身份 | ✅ 已填 | `zhuwencong/xianyu-smart-monitor`；模板哨兵仍是 `<GITHUB_USER>`，脚本可重复运行 |
+| 仓库身份 | ✅ 已填 | `zhuwencong/xianyu-smart-monitor`；模板哨兵 `GITHUB_USER`（尖括号包裹）仍留在两个脚本里，可重复运行 |
 | 测试基线 | ✅ 修复 | 本地 5 个失败用例已处理（3 个环境隔离、1 个 Windows 专属、1 个断言过时），当前 **219 passed / 5 skipped** |
 | 临时目录兜底 | ✅ 加固 | `TEMP` 不可写或被拦截时自动切 `.tmp`；探测带超时，不会把启动/测试卡死 |
 | 代理继承兜底 | ✅ 加固 | 启动时清理继承的失效代理；通知改为优先直连（见 KI-001） |
@@ -66,7 +66,7 @@ git commit -m "chore: 初始开源版本 1.0.0"
 ### 1.2 填充仓库身份（已完成，换仓库时才需要重做）
 
 本仓库的身份已经填好：`zhuwencong/xianyu-smart-monitor`。
-模板里的占位符是 `<GITHUB_USER>`，`git grep -n 'GITHUB_USER'` 应该只命中
+模板里的占位符是 `GITHUB_USER`（尖括号包裹），`git grep -n 'GITHUB_USER'` 应该只命中
 `scripts/replace-placeholders.ps1` 与 `scripts/build-market-index.mjs` 两个哨兵文件。
 
 只有**要换仓库/署名**时才需要重跑：

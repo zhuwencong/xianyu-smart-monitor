@@ -37,6 +37,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1 默认按本地代码页解读原生命令输出，仓库里有中文文件名时
+# （例如「启动服务_静默.bat」）会把路径解成乱码，Test-Path 直接报 Illegal characters。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 $ExcludeDirs = @(
@@ -68,7 +73,9 @@ function Get-TargetFiles {
     if (Test-Path (Join-Path $Root '.git')) {
         Push-Location $Root
         try {
-            $tracked = & git ls-files 2>$null
+            # quotepath=false：否则 git 会把中文文件名转义成 \345\220\257 之类，
+            # 拼出来的路径直接没法用。
+            $tracked = & git -c core.quotepath=false ls-files 2>$null
         }
         finally {
             Pop-Location
