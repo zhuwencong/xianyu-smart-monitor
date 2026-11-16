@@ -25,11 +25,14 @@
 | `CONTRIBUTING.md` | ✅ 新增 | 开发环境、提交前自检、Commit 规范 |
 | `CODE_OF_CONDUCT.md` | ✅ 新增 | 行为准则 |
 | `CHANGELOG.md` | ✅ 新增 | 相对上游的逐条变更 |
+| `KNOWN_ISSUES.md` | ✅ 新增 | 8 条容易被误判的坑与规避方式（KI-001…KI-008） |
 | Issue / PR 模板 | ✅ 新增 | Bug、功能、PR 三套 |
 | CI | ✅ 新增 | 敏感信息扫描 + pytest + 前端构建 + Docker + 插件校验 |
 | 插件与市场 | ✅ 新增 | `plugins/dsh`、`plugins/workbuddy`、`market/`、发布脚本 |
-| 测试基线 | ✅ 修复 | 本地 5 个失败用例已处理（3 个环境隔离、1 个 Windows 专属、1 个断言过时），当前 **216 passed / 5 skipped** |
+| 仓库身份 | ✅ 已填 | `zhuwencong/xianyu-smart-monitor`；模板哨兵仍是 `<GITHUB_USER>`，脚本可重复运行 |
+| 测试基线 | ✅ 修复 | 本地 5 个失败用例已处理（3 个环境隔离、1 个 Windows 专属、1 个断言过时），当前 **219 passed / 5 skipped** |
 | 临时目录兜底 | ✅ 加固 | `TEMP` 不可写或被拦截时自动切 `.tmp`；探测带超时，不会把启动/测试卡死 |
+| 代理继承兜底 | ✅ 加固 | 启动时清理继承的失效代理；通知改为优先直连（见 KI-001） |
 
 ### 已处理的三处敏感残留
 
@@ -60,9 +63,13 @@ git status --short          # ★ 逐行看一眼，确认没有 .env / state/ /
 git commit -m "chore: 初始开源版本 1.0.0"
 ```
 
-### 1.2 填充仓库身份（把占位符换成你的）
+### 1.2 填充仓库身份（已完成，换仓库时才需要重做）
 
-README、package.json、市场索引里现在是 `zhuwencong` 和 `xianyu-smart-monitor`。
+本仓库的身份已经填好：`zhuwencong/xianyu-smart-monitor`。
+模板里的占位符是 `<GITHUB_USER>`，`git grep -n 'GITHUB_USER'` 应该只命中
+`scripts/replace-placeholders.ps1` 与 `scripts/build-market-index.mjs` 两个哨兵文件。
+
+只有**要换仓库/署名**时才需要重跑：
 
 ```bash
 # 普通用户（仓库名用默认的 xianyu-smart-monitor）
@@ -77,11 +84,12 @@ pwsh -File scripts/replace-placeholders.ps1 `
 ```
 
 先预演一次看会改哪些文件：加 `-DryRun`。
+脚本会自动跳过两个哨兵文件，所以**可以重复运行**，不会把哨兵值本身替换掉。
 
 替换后重新生成市场索引与校验：
 
 ```bash
-node scripts/build-market-index.mjs --repo-url https://github.com/yourname/xianyu-smart-monitor
+node scripts/build-market-index.mjs
 node scripts/check-plugin-versions.mjs
 ```
 
@@ -267,9 +275,10 @@ git add -A && git commit -m "chore: 刷新市场索引 0.1.1" && git push
 
 - [ ] **改默认密码**：`WEB_PASSWORD` 不要留 `admin123`
 - [ ] **清本地数据**：`data/`、`state/`、`logs/`、`images/` 在你的机器上留着，但确认没进 git
-- [ ] **换占位符**：`scripts/replace-placeholders.ps1`，然后 `grep -r 'zhuwencong' .` 应为空
+- [x] **换占位符**：已填 `zhuwencong`；`git grep -n 'GITHUB_USER'` 只应命中两个哨兵文件
 - [ ] **CI 绿灯**：推送后看 Actions，四个 job 全过
-- [ ] **README 截图是新的**：`static/img*.png` 如果是上游旧图，读者会觉得货不对版
+- [ ] **README 截图是新的，且标注与内容一致**：`static/img*.png` 换成当前界面；图注写实际内容（候选列表 / 详情 / 任务 / 管理抽屉）
+- [ ] **截图脱敏**：卖家昵称匿名化、不能出现 token / Key / 通知渠道凭据 / 本地路径用户名
 
 ---
 

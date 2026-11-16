@@ -7,19 +7,12 @@
 
 ## [Unreleased]
 
-### 修复
-- 启动时清理父进程继承的失效代理变量（`src/core/proxy_env.py`）：继承到已退出的本地代理后，AI 调用会全部失败为 `APIConnectionError: Connection error.`，而 Playwright 走系统代理不受影响，表现为「抓取正常、分析全挂」
-- 新增 `scripts/reanalyze_failed.py`：重跑历史 AI 分析失败的商品，并回写 `result_items`
-- AI 调用失败不再等同于「判定不合格」：失败商品标记 `analysis_error`，最多重试 3 轮，重试期间不计入去重集合，成功后会覆盖旧结论（`src/services/item_analysis_dispatcher.py`、`src/services/result_storage_service.py`）
-- 通知发送改为优先直连、失败再回退系统代理（`notification_clients/base.py` 的 `post_notification`）：此前 `requests` 会从注册表读到已失效的本地代理，导致 PushPlus 等渠道静默失败，抓到了也收不到提醒
-- `ENABLE_RESPONSE_FORMAT` 恢复默认 `true`，减少模型输出 JSON 校验失败
-
 ### 计划中
 - 抓取选择器集中配置化，页面结构变化时只需改一处
 - 运行记录与日报的导出模板可自定义
 - DSH 插件支持订阅式「有新候选就提醒」
 
-## [1.0.0] - 2026-11-05
+## [1.0.0] - 2026-11-16
 
 首个公开版本。基于上游 `main` 分支的较大规模重构，主要集中在**可判断性**（让人一眼看出值不值得看）和**可运维性**（长期无人值守也不静默停摆）。
 
@@ -45,8 +38,10 @@
 - 卖家画像缓存，避免同一卖家重复抓取
 
 **账号**
-- 账号失效识别：从任务日志中识别登录失效，记录账号与失效时间
-- 首页提醒条 + 顶栏「需处理」直达，可一键去重新扫码
+- 一键扫码添加账号：点「+ 添加账号」自动分配 `acc_N` 并拉起闲鱼扫码窗口，每 3 秒轮询，成功后账号自动入列表；
+  弹窗保留「重新打开窗口」与「手动粘贴 JSON」两个出口，扫码窗口被关掉或撞上单实例锁时可自行恢复
+- 账号失效识别：从任务日志按行归属账号，区分「登录失效」与「运行失败」，记录时间与原因
+- 首页提醒条 + 顶栏「需处理」直达：只有登录失效才引导重新扫码
 - 账号策略 `auto` / `fixed` / `rotate` 三态，绑定账号后自动回落逻辑修正
 
 **通知与报表**
@@ -81,6 +76,13 @@
 - 爬虫补充抓取详情页描述（`商品DO.desc`），提升故障/矿卡/维修/自提等判定的召回率。
 - 新增 `scripts/backfill_price_insight.py`：按新口径重算历史 `price_insight`，并用硬门槛复核历史推荐。
 
+**文档与仓库治理**
+- [KNOWN_ISSUES.md](KNOWN_ISSUES.md)：记录容易被误判的坑（代理继承、TEMP 挂起、`.gitignore` 过宽、验证码、pytest 捕获）
+- [SECURITY.md](SECURITY.md) / [CONTRIBUTING.md](CONTRIBUTING.md) / [NOTICE](NOTICE) / Issue 与 PR 模板 / CI
+- 发布脚本：市场索引生成与校验（`scripts/build-market-index.mjs`、`validate-market-index.mjs`）、
+  WorkBuddy 打包（`package-workbuddy-skill.mjs`）、三处版本一致性检查（`check-plugin-versions.mjs`）
+- 维护脚本：`scripts/reanalyze_failed.py`（重跑 AI 失败）、`scripts/backfill_price_insight.py`（重算价格口径）
+
 ### 变更
 
 - 结果页与导出改为从 SQLite 查询，不再扫描 `jsonl` 目录
@@ -102,11 +104,23 @@
   页面显示真实原因，并进入「需处理」列表；只有登录失效才提示重新扫码。
 - 账号页「最近失效 / 成功」改为「最近运行」，三态配色：可用 / 上次运行失败 / 需要更新。
 
-**添加账号改为「一键扫码」**
-- 账号页的「+ 添加账号」不再要求粘贴 JSON：点一下自动分配 `acc_N`、直接拉起闲鱼扫码窗口，
-  弹窗展示等待状态并每 3 秒轮询，扫码成功后账号自动出现在列表里。
-- 弹窗保留「重新打开窗口」与「手动粘贴 JSON」两个出口，扫码窗口被关掉或撞上单实例锁时可自行恢复。
-- 页面引导文案同步更新，不再让用户去双击 .bat 文件。
+**代理 / AI 失败 / 通知的静默失败**
+- 启动时清理父进程继承的失效代理变量（`src/core/proxy_env.py`）：继承到已退出的本地代理后，
+  AI 调用会全部失败为 `APIConnectionError: Connection error.`，而 Playwright 走系统代理不受影响，
+  表现为「抓取正常、分析全挂」；`.env` 里显式配了 `PROXY_URL` 时不清理
+- AI 调用失败不再等同于「判定不合格」：失败商品标记 `analysis_error`，最多重试 3 轮
+  （`AI_ERROR_MAX_RETRIES`），重试期间不计入去重集合，成功后会覆盖旧结论
+- 通知发送改为优先直连、失败再回退系统代理（`notification_clients/base.py` 的 `post_notification`）：
+  此前 `requests` 会从注册表读到已失效的本地代理，导致 PushPlus 等渠道静默失败
+- `ENABLE_RESPONSE_FORMAT` 恢复默认 `true`，减少模型输出 JSON 校验失败
+- 新增 `scripts/reanalyze_failed.py`：重跑历史 AI 分析失败的商品并回写 `result_items`
+  （支持 `--dry-run` / `--limit` / `--only-error` / `--notify`）
+
+**仓库与 CI 自身的问题**
+- `.gitignore` 目录规则补齐前导斜杠：`data/` 曾把 `web-ui/src/data/goofishRegions.json` 一起忽略，
+  导致 clone 后前端构建 `Failed to resolve import`（见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-003）
+- CI 的 `run:` 单行命令加引号，修复 YAML 解析失败
+- 测试统一用 `ZoneInfo("Asia/Shanghai")` 构造固定时间，不再因为 CI runner 是 UTC 而必红
 
 **临时目录不可写导致全线 EPERM**
 - 新增 `src/core/temp_env.py`：启动时探测 TEMP/TMP 是否可写，不可写自动切到项目内 `.tmp`。

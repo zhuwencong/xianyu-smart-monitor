@@ -18,15 +18,18 @@ A Playwright and AI-powered multi-task real-time monitoring tool for Xianyu (闲
 - **Advanced Filtering**: Free shipping, new listing time range, province/city/district filtering
 - **Instant Notifications**: Supports ntfy.sh, WeChat Work (企业微信), Bark, Telegram, Webhook
 - **Scheduled Tasks**: Cron expression configuration for periodic tasks
-- **Account & Proxy Rotation**: Multi-account management, task-account binding, proxy pool rotation with failure retry
+- **Account & Proxy Rotation**: one-click QR account onboarding, multi-account management, task-account binding, proxy pool rotation with failure retry
+- **Retryable AI Failures**: failed model calls are marked `analysis_error` and retried (up to 3 rounds) instead of being treated as "not recommended"
 - **Docker Deployment**: One-click containerized deployment
 
 ## Screenshots
 
-![Monitoring Overview](static/img.png)
-![Task Management](static/img_1.png)
-![Result Viewer](static/img_2.png)
-![Notification Settings](static/img_3.png)
+![Candidate list](static/img.png)
+![Candidate detail with four-dimension score](static/img_1.png)
+![Tasks and run history](static/img_2.png)
+![Management and notification drawer](static/img_3.png)
+
+> Seller names in the screenshots are anonymized; product photos and titles come from real scraped results and are used only to illustrate the UI.
 
 ## Plugins
 
@@ -78,9 +81,13 @@ chmod +x start.sh
 ### First-Time Setup
 
 1. Open the default Web UI at `http://127.0.0.1:8000` and sign in.
-2. Go to "Xianyu Account Management" and use the [Chrome Extension](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa) to export and paste the Xianyu login-state JSON.
-3. Login-state files are stored in `state/`, for example `state/acc_1.json`.
+2. Go to "Xianyu Account Management" and click **"+ Add Account"**: it allocates `acc_N` and opens the Xianyu QR-login window. The account appears in the list once you scan.
+   If the window is closed or hits the single-instance lock, the dialog offers "reopen window" and the classic "paste JSON" path
+   (export with the [Chrome Extension](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa)).
+3. Login-state files are stored in `state/`, for example `state/acc_1.json` (plain text — see [SECURITY.md](SECURITY.md)).
 4. Go back to "Task Management", create a task, bind an account if needed, and run it.
+
+> Known limits of the QR flow (closed window, single-instance lock, 5-minute timeout) are documented in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-004.
 
 ### Create Your First Task
 
@@ -178,6 +185,23 @@ npm run dev
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
 cd web-ui && npm run build
 ```
+
+### Maintenance Scripts
+
+Historical data fixes live in `scripts/`. Note the two scripts have different write guards:
+
+```bash
+# Re-run items whose AI analysis failed (writes unless --dry-run is given)
+python scripts/reanalyze_failed.py --dry-run
+python scripts/reanalyze_failed.py --limit 50
+
+# Recompute historical price_insight with the same-model median rule (previews unless --apply)
+python scripts/backfill_price_insight.py --dry-run
+python scripts/backfill_price_insight.py --apply
+```
+
+Both rewrite `data/app.sqlite3` — back it up first.
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for problems that are easy to misdiagnose.
 
 ### Task Creation API
 
@@ -281,6 +305,16 @@ Region filtering can sharply reduce result volume. Leave it empty if you want a 
 ### Why does the app say the frontend build artifacts are missing?
 
 It means the repository root `dist/` directory is missing. Run `./start.sh`, or build the frontend in `web-ui/` and make sure the artifacts are copied to the root `dist/`.
+
+### Products are scraped, but every AI analysis fails / notifications never arrive?
+
+Almost always an **inherited dead local proxy**: the service and spider processes pick up `HTTP_PROXY` /
+`HTTPS_PROXY` from the parent shell pointing at a stopped Clash/V2Ray port. `httpx` (AI) and `requests`
+(notifications) honor it, while Playwright does not — so scraping looks fine while analysis and pushes fail
+silently with `APIConnectionError: Connection error.`
+
+Since 1.0.0 those inherited variables are stripped at startup (unless `PROXY_URL` is set explicitly in `.env`).
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-001.
 
 ### Why does `./start.sh` complain about missing Playwright or a browser?
 

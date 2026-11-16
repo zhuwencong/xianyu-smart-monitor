@@ -5,6 +5,8 @@
 ## 在动手之前
 
 - 先搜 Issue 和 PR，避免重复劳动；有疑问先开 **Discussion** 或 **Feature Request**，不要直接写大改。
+- 先看 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)：代理继承、`%TEMP%` 挂起、验证码、pytest 捕获这些坑已经写过，
+  不用再当新 bug 报。
 - 涉及抓取频率、代理、验证码、账号池的改动**不会被合并**。这是硬边界，见 [SECURITY.md](SECURITY.md)。
 - 涉及 UI 的改动请附截图（改前 / 改后）。
 

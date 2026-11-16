@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/brand/logo_256.png" width="104" alt="闲鱼智能监控">
+</p>
+
 # 闲鱼智能监控系统
 
 [中文] ｜ [English](README_EN.md)
@@ -42,7 +46,8 @@
 - **高级筛选**: 包邮、新发布时间范围、省/市/区三级区域筛选
 - **即时通知**: 支持 ntfy.sh、企业微信、Bark、Telegram、Webhook等多渠道
 - **定时调度**: 支持 Cron 配置周期性任务
-- **账号与代理轮换**: 多账号管理、任务绑定账号、代理池轮换与失败重试
+- **账号与代理轮换**: 一键扫码加账号、多账号管理、任务绑定账号、代理池轮换与失败重试
+- **AI 失败可重试**: 模型调用失败会标记为 `analysis_error` 并自动重跑（最多 3 轮），不会把「没分析成功」当成「不合格」
 - **Docker 部署**: 一键容器化部署
 
 ## 工作台界面（V3）
@@ -60,10 +65,12 @@
 
 ## 截图
 
-![监控概览](static/img.png)
-![任务管理](static/img_1.png)
-![结果查看](static/img_2.png)
-![通知推送](static/img_3.png)
+![候选商品列表](static/img.png)
+![候选详情与四维评分](static/img_1.png)
+![监控任务与运行记录](static/img_2.png)
+![管理与通知抽屉](static/img_3.png)
+
+> 截图里的卖家名已做匿名化处理；商品图与标题来自真实抓取结果，仅用于说明界面。
 
 ## 插件与生态
 
@@ -93,7 +100,9 @@ tests/               测试（unit / integration / live）
 plugins/dsh/         DSH 插件组合包（npm 包，注册 xianyu_* 工具）
 plugins/workbuddy/   WorkBuddy 技能包（SKILL.md + scripts + references）
 market/              DSH 插件市场索引与图标（可直接托管到 Pages）
-scripts/             发布脚本（索引生成/校验、技能打包、版本检查、占位符替换）
+scripts/            发布脚本（索引生成/校验、技能打包、版本检查、占位符替换）与维护脚本（重跑 AI 失败、重算价格口径）
+static/brand/       品牌素材（logo / favicon 源文件）
+KNOWN_ISSUES.md     容易被误判的已知问题与规避方式
 data/ state/ logs/ images/ prompts/   运行时数据（不进仓库）
 ```
 
@@ -157,9 +166,13 @@ docker compose up -d
 ### 第一次使用
 
 1. 打开默认 Web UI `http://127.0.0.1:8000`，本机访问会直接进入工作台（无需登录）。
-2. 进入“闲鱼账号管理”，使用 [Chrome 扩展](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa) 导出并粘贴闲鱼登录态 JSON。
-3. 登录态文件会保存到 `state/` 目录，例如 `state/acc_1.json`。
-4. 回到“任务管理”，创建任务并绑定账号后即可运行。
+2. 进入「闲鱼账号管理」，点 **「+ 添加账号」**：会自动分配 `acc_N` 并拉起闲鱼扫码窗口，扫完账号直接出现在列表里。
+   扫码窗口被关掉、或撞上单实例锁时，弹窗里可以「重新打开窗口」，也可以走老的「手动粘贴 JSON」
+   （用 [Chrome 扩展](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa) 导出登录态再粘贴）。
+3. 登录态文件会保存到 `state/` 目录，例如 `state/acc_1.json`（明文，见 [SECURITY.md](SECURITY.md)）。
+4. 回到「监控任务」，创建任务并绑定账号后即可运行。
+
+> 扫码相关的已知限制（窗口被关、单实例锁、5 分钟超时）见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-004。
 
 ### 创建第一个任务
 
@@ -265,6 +278,26 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）会跑上述全部�
 
 > Windows 上如果 pytest 报 `collected 0 items` 或 `underlying buffer has been detached`，是控制台捕获的问题，
 > 加 `-s` 关闭捕获即可：`pytest -q -s`。
+
+### 维护脚本
+
+历史数据口径修正和失败重跑都放在 `scripts/`。**两个脚本的写入门槛不同，别记混**：
+
+```bash
+# 重跑历史上 AI 分析失败的商品（回写 result_items）
+#   ⚠ 不加 --dry-run 就会写库；想先看清单务必带上
+python scripts/reanalyze_failed.py --dry-run
+python scripts/reanalyze_failed.py --limit 50                  # 只跑 50 条试试
+python scripts/reanalyze_failed.py --only-error --notify
+
+# 按「同型号中位数」新口径重算历史 price_insight，并用硬门槛复核历史推荐
+#   ⚠ 不加 --apply 就只预览
+python scripts/backfill_price_insight.py --dry-run
+python scripts/backfill_price_insight.py --apply
+```
+
+建议顺序：先 `reanalyze_failed`（补齐缺失的 AI 结论），再 `backfill_price_insight`（统一价格口径）。
+两个脚本都会改写 `data/app.sqlite3`，跑之前先备份一份。
 
 ### 任务创建 API
 
@@ -397,6 +430,21 @@ AI 模式会先生成分析标准，再创建任务。现在该流程已改为�
 
 这是脚本的前置检查。请先安装 Playwright CLI 与 Chromium，并确保系统中可用 Chrome / Edge（Linux 环境也可用 Chromium），然后重新执行 `./start.sh`。
 
+### 商品抓到了，但 AI 分析全部失败 / 通知收不到？
+
+大概率是**继承了已失效的本地代理**：服务和爬虫进程从父 shell 拿到 `HTTP_PROXY` / `HTTPS_PROXY`，
+指向一个已经停掉的 Clash / V2Ray 端口。`httpx`（AI）和 `requests`（推送）都会走它，而 Playwright
+不读这些变量——于是「抓取正常、分析全挂、推送静默失败」，日志里只有 `APIConnectionError: Connection error.`。
+
+1.0.0 起启动时会自动清理继承的代理变量（`.env` 里显式配了 `PROXY_URL` 时不清）。
+如果仍然复现，检查启动日志里有没有 `[启动] 已清理父进程继承的代理环境变量: ...`，
+详见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-001。
+
+### 测试一条都没收集到 / 退出时报 `underlying buffer has been detached`？
+
+Windows 上 pytest 的捕获层与部分终端不兼容，加 `-s` 关闭捕获即可：`pytest -q -s`。
+见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-006。
+
 </details>
 
 
@@ -438,6 +486,7 @@ AI 模式会先生成分析标准，再创建任务。现在该流程已改为�
 ## 参与贡献
 
 - 提 bug 用 [Bug 报告模板](.github/ISSUE_TEMPLATE/bug_report.yml)，提需求用 [功能建议模板](.github/ISSUE_TEMPLATE/feature_request.yml)
+- 提问前先扫一眼 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)：代理继承、`%TEMP%` 挂起、验证码、pytest 捕获这些坑都已经写过
 - 开发约定、提交前自检、Commit 规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
 - 想改抓取频率或加代理池的 PR 不会被合并，原因写在 [SECURITY.md](SECURITY.md)
 - 安全问题请走私密渠道，不要开公开 Issue
