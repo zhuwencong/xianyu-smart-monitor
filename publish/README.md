@@ -8,17 +8,17 @@ publish/
 ├── README.md            本文件：目录说明 + 一条命令自检
 ├── dsh/                 DeepSeek Harness（DSH）
 │   ├── PR.md            官方精选目录（awesome-dsh-plugin）上架说明
-│   └── data/            可直接拷进目录仓库的材料
-│       ├── plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml
-│       └── screenshots.json
+│   └── data/            可直接拷进目录仓库的材料（只有一个 YAML）
+│       └── plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml
 └── workbuddy/           WorkBuddy
     └── UPLOAD.md        技能包结构 / frontmatter 必填字段 / 开放平台提交流程
 ```
 
 两个渠道的权威口径都来自官方文档，正文里给了出处，别凭记忆改字段。
 
-> **最近核对：2026-11-20。** 两条渠道的官方文档都与 2026-11-16 版一致，格式未变；
-> 仓库状态已刷新为 28 个提交（HEAD `a49c5cc`）、`v1.0.0` tag、版本 0.1.2。
+> **最近核对：2026-11-20（二次）。** 两处官方口径已修正：目录仓库的 README 由维护者合并后自动生成、
+> 不用提交；截图改为放在本仓库 `plugins/dsh/screenshots.json`。
+> 原先「合并 screenshots.json 进目录仓库 + 提交 README」的做法已删除，提交物收敛为**一个 YAML**。
 
 ## 一页对照
 
@@ -54,6 +54,8 @@ node scripts/check-publish-artifacts.mjs
 
 - 精选目录条目的**文件名 ↔ url ↔ name** 三者是否自洽，`category` 是否在枚举里，
   `description.en` 是否以句点结尾、含 `: ` 时有没有加引号；
+- `plugins/dsh/screenshots.json`（官方新规：截图放插件自己的目录）张数 1–8 张、
+  路径是否为仓库内相对路径、对应文件是否存在；
 - `plugins/dsh/package.json` 是否声明 `dsh.bundle`（只声明 `dsh.client` 是典型被拒原因）、
   patch 文件是否存在、`@deepseek-ai/*` 是否误放进 `dependencies`；
 - WorkBuddy 技能 frontmatter 的 8 个必填字段、`name` 是否符合连字符规范、版本是否与插件一致；

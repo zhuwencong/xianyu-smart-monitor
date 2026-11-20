@@ -23,9 +23,11 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
 
 const ENTRY_DIR = join(REPO_ROOT, 'publish', 'dsh', 'data', 'plugins')
-const SCREENSHOTS = join(REPO_ROOT, 'publish', 'dsh', 'data', 'screenshots.json')
 const SKILL_DIR = join(REPO_ROOT, 'plugins', 'workbuddy', 'xianyu-monitor')
 const PLUGIN_DIR = join(REPO_ROOT, 'plugins', 'dsh')
+// 截图声明在插件自己的 package.json 旁边（monorepo 就放在子包目录里），
+// 不再往目录仓库的 data/screenshots.json 里加东西。
+const SHOTS = join(PLUGIN_DIR, 'screenshots.json')
 
 /** 目录收录允许的分类（contributing.md 的枚举 + 站上已有的 agi） */
 const CATEGORIES = new Set([
@@ -45,13 +47,6 @@ const SKILL_REQUIRED = [
   'version',
   'author',
 ]
-
-const IMAGE_HOSTS = new Set([
-  'raw.githubusercontent.com',
-  'user-images.githubusercontent.com',
-  'camo.githubusercontent.com',
-  'github.com',
-])
 
 const errors = []
 const warnings = []
@@ -277,22 +272,30 @@ function checkCatalogEntry() {
 
   if (errors.length === 0) ok(`${file} → ${entry.name?.value} / ${entry.category?.value}`)
 
-  // 截图清单（可选，但存在就要合规）
-  if (existsSync(SCREENSHOTS)) {
+  // 截图清单（可选，但存在就要合规）：官方要求放在插件自己的目录里
+  // （`package.json` 旁边），1–8 张、路径相对该文件、图片必须已在仓库中。
+  if (existsSync(SHOTS)) {
     try {
-      const shots = JSON.parse(readFileSync(SCREENSHOTS, 'utf8'))
-      for (const [key, list] of Object.entries(shots)) {
-        if (key !== url) fail(`screenshots.json 的 key 必须与条目 url 完全一致：${key}`)
-        if (!Array.isArray(list) || list.length < 1 || list.length > 8) {
-          fail(`screenshots.json 每个条目需 1–8 张图：${key}`)
-          continue
-        }
+      const parsed = JSON.parse(readFileSync(SHOTS, 'utf8'))
+      const list = Array.isArray(parsed) ? parsed : parsed.screenshots
+      if (!Array.isArray(list) || list.length < 1 || list.length > 8) {
+        fail('plugins/dsh/screenshots.json 需列出 1–8 张图')
+      } else {
         for (const image of list) {
-          const host = new URL(image).hostname
-          if (!IMAGE_HOSTS.has(host)) fail(`截图必须托管在 GitHub：${image}`)
+          if (typeof image !== 'string' || !image.trim()) {
+            fail(`截图路径必须是非空字符串：${JSON.stringify(image)}`)
+            continue
+          }
+          if (/^[a-z][a-z0-9+.-]*:/i.test(image) || image.startsWith('/')) {
+            fail(`截图必须是仓库内相对路径，不能是 URL 或绝对路径：${image}`)
+            continue
+          }
+          const target = resolve(PLUGIN_DIR, image)
+          if (!target.startsWith(REPO_ROOT)) fail(`截图路径越出仓库：${image}`)
+          else if (!existsSync(target)) fail(`截图文件不存在：${image}`)
         }
+        ok(`截图清单有效（${list.length} 张，相对 plugins/dsh/）`)
       }
-      ok(`screenshots.json 结构正确（${Object.keys(shots).length} 个条目）`)
     } catch (error) {
       fail(`screenshots.json 解析失败：${error.message}`)
     }

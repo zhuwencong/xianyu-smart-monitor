@@ -15,21 +15,28 @@
 **关键一点**：dsh-market 仓库本身**不收**条目——[它的 README 说得很直白](https://github.com/dsh-market/dsh-market#提交你的插件)，
 插件列表来自精选目录，想上架就得去 `awesome-dsh-plugin` 提 PR，加**一个 YAML 文件**。
 
-> **本轮核对（2026-11-20）**：`contributing.md`、PR 模板与 2026-11-16 版逐条比对**没有变化**，格式不用改；
-> 变的是本仓库状态——已到 **28 个提交**（HEAD `a49c5cc`）、打了 **`v1.0.0`** tag、插件版本 **0.1.2**、
-> 本地与 `origin/main` 一致。下面的对照表和 2.1 节已按这个状态更新。
+> **本轮核对（2026-11-20，二次）**：对照上游 `contributing.md` 与 `.github/pull_request_template.md`
+> 修正了两处**已经过期的说法**——
+> 1. README 不再由提交者维护：合并后由 `main` 自动生成，手改必冲突；
+> 2. 截图改为在**自己仓库**的 `plugins/dsh/screenshots.json` 声明，不再合并进目录仓库的 `data/screenshots.json`。
+>
+> 因此提交物收敛为**一个 YAML 文件**（见第 1 节）。仓库状态：插件版本 **0.1.2**，`v1.0.0` tag 已打。
 
 ## 1. 已经备好的文件
+
+**提交物只有一个文件。** 目录仓库的 README 由维护者在合并后自动生成，**不要**手改，也不用提交
+（官方 PR 模板原话：*"The READMEs are regenerated on `main` after merge: don't edit them by hand,
+and you don't need to commit them either"*）。
 
 | 本目录下的文件 | 目标仓库里的路径 | 必需？ |
 |---|---|---|
 | `data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml` | `data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml` | ✅ 必需 |
-| `data/screenshots.json` | 内容合并进 `data/screenshots.json` | 可选（推荐） |
 
-> ⚠️ 截图说明：`data/screenshots.json` 里用的是仓库 `static/img*.png`，拍的是**监控服务的 Web UI**
-> （候选商品列表），不是 DSH 对话框里的 `xianyu_status` 输出。市场详情页会把它当作「这个插件的截图」展示，
-> 所以**建议先补 1–2 张 DSH 里工具调用的截图**（`assets/` 下新图 + 改这份 JSON 的路径）再提 PR，
-> 否则审稿人可能问「截图和插件不是一回事」。不补也能提，只是展示效果打折。
+> **截图不在这个 PR 里加。** 官方现在要求把 `screenshots.json` 放在**插件自己的**目录里
+> （即本仓库 `plugins/dsh/screenshots.json`，紧挨 `package.json`），1–8 张、路径相对该文件；
+> 以后换图不用再提 PR。当前这份指向 `../../static/img*.png`，拍的是监控服务 Web UI，
+> 建议之后补 1–2 张 DSH 里 `xianyu_status` 调用的实拍再替换。
+> `scripts/check-publish-artifacts.mjs` 会校验它的张数、相对路径与文件是否存在。
 
 文件名规则来自 [contributing.md](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md)：
 
@@ -88,26 +95,21 @@ tarball: https://github.com/zhuwencong/xianyu-smart-monitor/releases/latest/down
 ## 3. 提交步骤
 
 ```bash
-# 1) fork 并 clone 目录仓库
+# 1) fork 并 clone 目录仓库（fork 只能在网页上点，没有 gh 也能走完）
 gh repo fork awesome-dsh-plugin/awesome-dsh-plugin --clone
 cd awesome-dsh-plugin
 git checkout -b add/xianyu-smart-monitor
 
-# 2) 放条目（在本仓库根目录执行）
-mkdir -p ../awesome-dsh-plugin/data/plugins
-cp publish/dsh/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml \
-   ../awesome-dsh-plugin/data/plugins/
+# 2) 放条目（在本仓库根目录执行）——整个提交只有这一个文件
+cp ../ai-goofish-monitor/publish/dsh/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml \
+   data/plugins/
 
-# 3) 可选：截图。把 publish/dsh/data/screenshots.json 里的键值
-#    合并进 ../awesome-dsh-plugin/data/screenshots.json（不要整份覆盖）
-
-# 4) 重新生成两个 README —— 必须，且不要手改 README
-cd ../awesome-dsh-plugin
+# 3) 想先看 README 效果再跑生成；提交时不要带上它
 npm ci
 node scripts/generate-readme.mjs
 
-# 5) 提交
-git add data/plugins data/screenshots.json README.md README.zh.md
+# 4) 提交：只 add 条目本身
+git add data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml
 git commit -m "Add zhuwencong/xianyu-smart-monitor"
 git push -u origin add/xianyu-smart-monitor
 ```
@@ -121,11 +123,12 @@ PR 正文用仓库的 `.github/pull_request_template.md`，逐条勾上即可；
 |---|---|
 | `package.json` 声明 `dsh.bundle`（只声明 `dsh.client` 会被拒） | ✅ `plugins/dsh/package.json` → `dsh.bundle.patch: ./cordis.patch.yml`，文件存在 |
 | 子包位置在根 / `packages/` / `plugins/` / `apps/` | ✅ `plugins/dsh` |
-| 仓库创建满 1 天、提交数 ≥ 10 | ✅ 2026-11-04 创建，当前 **28 个提交**（HEAD `a49c5cc`，与 `origin/main` 一致） |
-| 仓库有 `dsh-plugin` topic | ⚠️ 待打（Settings → Topics） |
+| 仓库创建满 1 天 | ✅ 2026-11-04 创建（提交数下限已于 2026-09-03 取消，不再卡 ≥10） |
+| 仓库有 `dsh-plugin` topic | ⚠️ 待打（Settings → Topics）；自动检查不校验，但 PR 模板里是人工勾选项 |
 | 描述属实、无营销词 | ✅ 描述里的「ten tools」与 `index.js` 里 10 个 `xianyu_*` 工具一致 |
 | `@deepseek-ai/*` 用 `peerDependencies` 而非 `dependencies` | ✅ 已是 peer + dev |
-| 只改自己那一条，不动别人 | ✅ 本 PR 只新增一个文件 |
+| 只改自己那一条，不动别人 | ✅ 只新增 `data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml` 一个文件；不提交 README |
+| 截图 | ✅ 放在本仓库 `plugins/dsh/screenshots.json`（4 张，相对路径），无需进这个 PR |
 
 CI 通过只是**前置条件**，合入前维护者会真读代码（`contributing.md` 明确写了这一点）。
 
