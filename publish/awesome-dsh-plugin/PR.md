@@ -15,6 +15,10 @@
 **关键一点**：dsh-market 仓库本身**不收**条目——[它的 README 说得很直白](https://github.com/dsh-market/dsh-market#提交你的插件)，
 插件列表来自精选目录，想上架就得去 `awesome-dsh-plugin` 提 PR，加**一个 YAML 文件**。
 
+> **本轮核对（2026-11-20）**：`contributing.md`、PR 模板与 2026-11-16 版逐条比对**没有变化**，格式不用改；
+> 变的是本仓库状态——已到 **28 个提交**（HEAD `a49c5cc`）、打了 **`v1.0.0`** tag、插件版本 **0.1.2**、
+> 本地与 `origin/main` 一致。下面的对照表和 2.1 节已按这个状态更新。
+
 ## 1. 已经备好的文件
 
 | 本目录下的文件 | 目标仓库里的路径 | 必需？ |
@@ -55,10 +59,31 @@ description:
 | `category` | 取自固定枚举，**贴合实际功能**即可，选偏了维护者会改、不会打回 | `tools`（Tools & Capabilities）：插件注册的是 10 个 `xianyu_*` 工具 |
 | `description.en` | **唯一必填的描述**；一句话、以 `.` 结尾、只讲功能、不带营销词；能被代码核对 | 逐个核对过 `plugins/dsh/index.js` 的工具名，数量与动作都对得上 |
 | `description.zh` | 可选，维护者会补；写了就同样以 `。` 结尾 | 与英文一一对应 |
-| `tarball` | 可选，GitHub Release 托管的 `https` `.tgz` | 本插件无构建步骤、源码可直接装，先不填 |
+| `tarball` | 可选，GitHub Release 托管的 `https` `.tgz`；有它就优先走预构建安装 | 0.1.2 的 tgz 已打好（见 2.1），**上传到 Release 后**再填这一行 |
 
 ⚠️ **值里出现 `: `（冒号+空格）必须整体加引号**，否则 YAML 会把它读成嵌套键、CI 直接红。
 本文件用的是双引号，改文案时**别把引号删了**。
+
+### 2.1 可选但推荐：挂一个预构建 tarball
+
+仓库已经有 `v1.0.0` tag，把插件单独打包挂上去，市场会优先给「下载即装」，省掉源码构建和 `allowBuilds` 授权：
+
+```bash
+cd plugins/dsh
+npm pack --pack-destination ../../release
+# → release/dsh-plugin-xianyu-monitor-0.1.2.tgz
+#   4 个文件：package.json / index.js / cordis.patch.yml / README.md（10.6 kB）
+```
+
+1. 在 GitHub 上编辑已有的 `v1.0.0` Release，把 tgz 作为附件上传（不要改名）；
+2. 上传成功后，在条目末尾加一行：
+
+```yaml
+tarball: https://github.com/zhuwencong/xianyu-smart-monitor/releases/latest/download/dsh-plugin-xianyu-monitor-0.1.2.tgz
+```
+
+**没上传就别填**——填了会把用户带到 404，比不填更糟。版本号变了要重新 pack、重新上传，并同步改这一行。
+`latest/download` 指向最新的 Release；如果之后用 `v1.1.0` 发布，把文件名里的版本号一起换掉即可。
 
 ## 3. 提交步骤
 
@@ -96,7 +121,7 @@ PR 正文用仓库的 `.github/pull_request_template.md`，逐条勾上即可；
 |---|---|
 | `package.json` 声明 `dsh.bundle`（只声明 `dsh.client` 会被拒） | ✅ `plugins/dsh/package.json` → `dsh.bundle.patch: ./cordis.patch.yml`，文件存在 |
 | 子包位置在根 / `packages/` / `plugins/` / `apps/` | ✅ `plugins/dsh` |
-| 仓库创建满 1 天、提交数 ≥ 10 | ✅ 2026-11-04 创建，当前 14 个提交 |
+| 仓库创建满 1 天、提交数 ≥ 10 | ✅ 2026-11-04 创建，当前 **28 个提交**（HEAD `a49c5cc`，与 `origin/main` 一致） |
 | 仓库有 `dsh-plugin` topic | ⚠️ 待打（Settings → Topics） |
 | 描述属实、无营销词 | ✅ 描述里的「ten tools」与 `index.js` 里 10 个 `xianyu_*` 工具一致 |
 | `@deepseek-ai/*` 用 `peerDependencies` 而非 `dependencies` | ✅ 已是 peer + dev |

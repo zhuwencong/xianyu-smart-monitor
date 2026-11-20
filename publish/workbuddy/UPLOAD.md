@@ -2,6 +2,9 @@
 
 > 面向维护者。目标：在 [WorkBuddy 开放平台](https://open.workbuddy.cn/) 上传技能包，过审后出现在
 > WorkBuddy 的【专家 · 技能 · 连接器 → 技能】市场里。
+>
+> **本轮核对（2026-11-20）**：开放平台《技能》文档与 2026-11-16 版逐条比对**没有变化**（必填字段仍是那 8 个）；
+> 技能版本仍为 **0.1.2**，与 `plugins/dsh/package.json`、`market/index.json` 一致。
 
 ## 1. 官方格式（以开放平台文档为准）
 
@@ -59,7 +62,8 @@ node scripts/check-publish-artifacts.mjs
    - 方式 A：**创建技能** —— 按提示把需求补齐，让 WorkBuddy 自己生成骨架；
    - 方式 B：**上传 zip** —— 直接传 `release/xianyu-monitor.zip`（本技能走这条）。
 3. 填展示信息：
-   - 图标：512×512 PNG（可先用 `web-ui/public/favicon.png` 放大导出，或重新出一版）；
+   - 图标：512×512 PNG。仓库里有现成的 `static/brand/logo.png`（1024×1024）与 `static/brand/logo_256.png`，
+     用 1024 那张按比例缩到 512 导出即可，不要用 favicon 放大（会糊）；
    - 分类 / 标签：效率、自动化、二手交易；
    - 截图：建议 3 张（候选列表、任务状态、对话里的一次问答）；
    - 详情页写清 **数据用途**（见下一节）。
