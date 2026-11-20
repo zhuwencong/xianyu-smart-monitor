@@ -290,8 +290,14 @@ function checkCatalogEntry() {
             fail(`截图必须是仓库内相对路径，不能是 URL 或绝对路径：${image}`)
             continue
           }
+          // 与上游 probe-screenshots.mjs 一致：相对路径不得跳出插件目录
+          // （`../` 会被判 "relative paths must stay inside the plugin directory"）。
+          if (image.split('/').includes('..')) {
+            fail(`截图路径不能跳出 plugins/dsh/（不要用 ../）：${image}`)
+            continue
+          }
           const target = resolve(PLUGIN_DIR, image)
-          if (!target.startsWith(REPO_ROOT)) fail(`截图路径越出仓库：${image}`)
+          if (!target.startsWith(PLUGIN_DIR)) fail(`截图路径越出 plugins/dsh/：${image}`)
           else if (!existsSync(target)) fail(`截图文件不存在：${image}`)
         }
         ok(`截图清单有效（${list.length} 张，相对 plugins/dsh/）`)

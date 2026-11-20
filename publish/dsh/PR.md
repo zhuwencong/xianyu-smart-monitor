@@ -34,9 +34,12 @@ and you don't need to commit them either"*）。
 
 > **截图不在这个 PR 里加。** 官方现在要求把 `screenshots.json` 放在**插件自己的**目录里
 > （即本仓库 `plugins/dsh/screenshots.json`，紧挨 `package.json`），1–8 张、路径相对该文件；
-> 以后换图不用再提 PR。当前这份指向 `../../static/img*.png`，拍的是监控服务 Web UI，
-> 建议之后补 1–2 张 DSH 里 `xianyu_status` 调用的实拍再替换。
-> `scripts/check-publish-artifacts.mjs` 会校验它的张数、相对路径与文件是否存在。
+> 以后换图不用再提 PR。
+>
+> ⚠️ **相对路径不能跳出插件目录**：上游 `probe-screenshots.mjs` 会拒绝任何含 `..` 的写法
+> （`relative paths must stay inside the plugin directory`）。所以图片放在
+> `plugins/dsh/assets/`，清单里写 `assets/img.png`；**不要**写成 `../../static/img.png`。
+> `scripts/check-publish-artifacts.mjs` 已同步这条规则（张数、相对路径、禁止 `..`、文件是否存在）。
 
 文件名规则来自 [contributing.md](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md)：
 
