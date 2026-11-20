@@ -4,6 +4,21 @@ cd /d "%~dp0"
 title Xianyu AI Monitor  -  127.0.0.1:8000
 cls
 
+rem ---- if the port is already listening, just open the UI and leave ----
+netstat -ano | findstr /c:":8000 " | findstr /i "LISTENING" >nul
+if not errorlevel 1 (
+    echo ================================================
+    echo   Xianyu AI Monitor is already running
+    echo   Web UI : http://127.0.0.1:8000
+    echo   Opening browser, this window closes in 3s ...
+    echo   To restart it, end the pythonw service first.
+    echo ================================================
+    start "" "http://127.0.0.1:8000"
+    "%SystemRoot%\System32\PING.EXE" -n 4 127.0.0.1 >nul
+    exit /b 0
+)
+
+
 rem ---- clear proxy vars: the local proxy on this machine is dead ----
 set "HTTP_PROXY="
 set "HTTPS_PROXY="
