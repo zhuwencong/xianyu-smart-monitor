@@ -3,10 +3,27 @@ import os
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
+from src.services import workbench_service
 from src.services.task_run_service import TaskRunService
 from src.services.workbench_service import list_account_health, list_candidates, update_candidate_review
+
+
+@pytest.fixture()
+def frozen_now(monkeypatch):
+    """冻结业务时钟，避免用例随真实日期推移而变红。
+
+    账号健康用例把登录态 mtime 写死成 2026-11-0x，而业务规则是
+    「mtime 距今超过 14 天即判 needs_update」。真实时间越过该阈值后，
+    断言会被这条与用例意图无关的过期规则覆盖，所以把 _now() 固定到
+    这些日志事件之后、14 天窗口之内的一个时刻。
+    """
+    frozen = datetime(2026, 11, 5, 14, 0)
+    monkeypatch.setattr(workbench_service, "_now", lambda: frozen)
+    return frozen
 
 
 def _record(item_id: str = "1097137892689") -> dict:
@@ -159,7 +176,7 @@ def test_task_run_service_records_completion_and_stale_runs(tmp_path, monkeypatc
     assert again["status"] == "failed"
 
 
-def test_account_health_flags_runtime_failure_instead_of_reporting_ok(tmp_path, monkeypatch):
+def test_account_health_flags_runtime_failure_instead_of_reporting_ok(tmp_path, monkeypatch, frozen_now):
     """上一轮因浏览器起不来而失败，绝不能显示成「最近运行正常」。"""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ACCOUNT_STATE_DIR", "state")
@@ -195,7 +212,7 @@ def test_account_health_flags_runtime_failure_instead_of_reporting_ok(tmp_path, 
     assert "运行失败" in account["reason"]
 
 
-def test_account_health_attributes_rotation_failures_per_account(tmp_path, monkeypatch):
+def test_account_health_attributes_rotation_failures_per_account(tmp_path, monkeypatch, frozen_now):
     """一轮里先 acc_1 失败、再轮换到 acc_2 成功，两个账号的状态必须分开。"""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ACCOUNT_STATE_DIR", "state")
@@ -230,7 +247,7 @@ def test_account_health_attributes_rotation_failures_per_account(tmp_path, monke
     assert accounts["acc_2"]["last_run_status"] == "ok"
 
 
-def test_account_health_uses_login_failure_time(tmp_path, monkeypatch):
+def test_account_health_uses_login_failure_time(tmp_path, monkeypatch, frozen_now):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ACCOUNT_STATE_DIR", "state")
     state_dir = tmp_path / "state"
