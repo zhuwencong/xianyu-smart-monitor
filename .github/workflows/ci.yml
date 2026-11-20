@@ -63,6 +63,12 @@ jobs:
           python3 -c "import ast,pathlib; ast.parse(pathlib.Path('plugins/workbuddy/xianyu-monitor/scripts/xy.py').read_text(encoding='utf-8'))"
           echo "OK: 技能包结构与 frontmatter 必填字段齐全"
 
+      - name: 校验上架材料（精选目录条目 + 技能包 zip）
+        run: |
+          node scripts/package-workbuddy-skill.mjs --out release/xianyu-monitor.zip
+          node scripts/check-publish-artifacts.mjs
+          echo "OK: 上架材料格式正确"
+
       - name: Python 语法检查（含维护脚本）
         run: |
           python3 -m compileall -q src scripts

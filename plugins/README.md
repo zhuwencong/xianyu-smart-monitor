@@ -4,7 +4,7 @@
 
 | 目录 | 面向 | 形态 | 上架位置 |
 |---|---|---|---|
-| [`dsh/`](dsh/) | DeepSeek Harness | npm 组合包（`dsh.bundle`），注册 `xianyu_*` 工具 | DSH 插件市场（`market/index.json`） |
+| [`dsh/`](dsh/) | DeepSeek Harness | npm 组合包（`dsh.bundle`），注册 `xianyu_*` 工具 | DSH 插件市场（官方精选目录；另有 `market/index.json` 自建索引） |
 | [`workbuddy/xianyu-monitor/`](workbuddy/xianyu-monitor/) | WorkBuddy | 技能包（`SKILL.md` + `scripts/`） | WorkBuddy 开放平台 |
 
 ## 为什么不做成「一装就能爬」的插件
@@ -16,6 +16,10 @@
 ## 发布流程
 
 ### DSH
+
+官方精选目录（内置市场/发现页）：按 [`publish/awesome-dsh-plugin/PR.md`](../publish/awesome-dsh-plugin/PR.md) 提一个 YAML 条目。
+
+自建索引源（备用）：
 
 ```bash
 node scripts/build-market-index.mjs          # 生成 market/index.json

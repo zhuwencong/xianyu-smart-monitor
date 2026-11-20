@@ -148,6 +148,15 @@ xianyu-monitor/
 └── scripts/xy.py
 ```
 
+打包后跑一次自检（zip 结构 / 逐条 CRC / frontmatter 必填字段 / 版本一致性）：
+
+```bash
+node scripts/check-publish-artifacts.mjs
+```
+
+字段对照、开放平台提交步骤与「解析失败」排查表见
+[`publish/workbuddy/UPLOAD.md`](publish/workbuddy/UPLOAD.md)。
+
 ### 2.2 必填字段（已写在 `SKILL.md` frontmatter）
 
 | 字段 | 当前值 | 说明 |
@@ -157,7 +166,7 @@ xianyu-monitor/
 | `display_name_en` | Xianyu Smart Monitor | 市场英文名 |
 | `description` | 一段带触发词的描述 | 决定被召回的概率，写清「闲鱼/二手/捡漏/候选商品」 |
 | `description_zh` / `description_en` | 详情页简介 | 一句话 |
-| `version` | `0.1.0` | 与 DSH 插件同步 |
+| `version` | `0.1.2` | 与 `plugins/dsh/package.json` 同值，`check-plugin-versions.mjs` 会校验 |
 | `author` | 闲鱼智能监控 Contributors | 换成你的署名 |
 | `allowed-tools` | `Bash, Read` | 只需要执行脚本与读参考文件 |
 | `examples_zh` / `examples_en` | 各 4 条 | 展示在详情页「试试这样用」 |
@@ -184,7 +193,18 @@ xianyu-monitor/
 
 ## 3. 上架 DeepSeek Harness 插件市场
 
-DSH 的市场本质是**一个 JSON 索引 + 一个图标目录**，托管在任意静态站点。
+DSH 有**两条**入口，别混：
+
+| 入口 | 靠什么 | 材料 | 用户怎么看到 |
+|---|---|---|---|
+| 内置「插件市场 / 发现」页 | 官方精选目录 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | 一个 YAML 条目 | 提 PR 收录，搜索即见 |
+| 「发现 → 索引源」自定义市场 | 自己的 `format: 1` 索引 | `market/index.json` | 静态托管，用户手动添加索引 URL |
+
+官方目录的条目格式、PR 命令与逐条 CI 对照都在
+[`publish/awesome-dsh-plugin/PR.md`](publish/awesome-dsh-plugin/PR.md)，
+`node scripts/check-publish-artifacts.mjs` 会一并校验。**下面 3.1–3.5 讲的是自建索引这条。**
+
+DSH 的自建索引本质是**一个 JSON 索引 + 一个图标目录**，托管在任意静态站点。
 
 ### 3.1 先决定分发方式
 
