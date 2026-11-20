@@ -1,6 +1,20 @@
-# 上架材料总览（DSH 插件市场 + WorkBuddy 技能）
+# 上架材料总览（按平台分目录）
 
-这个目录只放**提交格式**相关的东西，不放构建产物（zip / tgz 在 `release/`，已被 gitignore）。
+这个目录**按平台分文件夹**，一个平台一个目录，只放提交格式相关的东西；
+构建产物（zip / tgz）在 `release/`，已被 gitignore。
+
+```
+publish/
+├── README.md            本文件：目录说明 + 一条命令自检
+├── dsh/                 DeepSeek Harness（DSH）
+│   ├── PR.md            官方精选目录（awesome-dsh-plugin）上架说明
+│   └── data/            可直接拷进目录仓库的材料
+│       ├── plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml
+│       └── screenshots.json
+└── workbuddy/           WorkBuddy
+    └── UPLOAD.md        技能包结构 / frontmatter 必填字段 / 开放平台提交流程
+```
+
 两个渠道的权威口径都来自官方文档，正文里给了出处，别凭记忆改字段。
 
 > **最近核对：2026-11-20。** 两条渠道的官方文档都与 2026-11-16 版一致，格式未变；
@@ -8,11 +22,13 @@
 
 ## 一页对照
 
-| 目标 | 格式本体 | 本目录里的文件 | 产物 / 动作 |
-|---|---|---|---|
-| **DSH 官方精选目录**（内置市场、发现页） | 一个 YAML 条目：`data/plugins/<owner>__<repo>[--path].yml` | `awesome-dsh-plugin/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml` | 向 `awesome-dsh-plugin/awesome-dsh-plugin` 提 PR |
-| DSH 自建索引源（备用渠道） | `format: 1` 的 `index.json` | 仓库根 `market/index.json`（脚本生成） | 静态托管后让用户「添加索引源」 |
-| **WorkBuddy 技能市场** | 技能包 zip：根目录下是 `xianyu-monitor/SKILL.md` + `references/` + `scripts/` | `workbuddy/UPLOAD.md`（字段对照） | 上传 `release/xianyu-monitor.zip` 到开放平台 |
+| 平台 | 目标 | 格式本体 | 本目录里的文件 | 产物 / 动作 |
+|---|---|---|---|---|
+| DSH | **官方精选目录**（内置市场、发现页） | 一个 YAML 条目：`data/plugins/<owner>__<repo>[--path].yml` | `dsh/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml` | 向 `awesome-dsh-plugin/awesome-dsh-plugin` 提 PR |
+| DSH | 自建索引源（备用渠道） | `format: 1` 的 `index.json` | 仓库根 `market/index.json`（脚本生成） | 静态托管后让用户「添加索引源」 |
+| WorkBuddy | **技能市场** | 技能包 zip：根目录下是 `xianyu-monitor/SKILL.md` + `references/` + `scripts/` | `workbuddy/UPLOAD.md`（字段对照） | 上传 `release/xianyu-monitor.zip` 到开放平台 |
+
+两条 DSH 渠道是**互补**的：精选目录面向「搜得到」，自建索引面向「不依赖审核的兜底」。
 
 构建产物（都不进 git，按需重新生成）：
 
@@ -21,12 +37,9 @@
 | `release/xianyu-monitor.zip` | `node scripts/package-workbuddy-skill.mjs --out release/xianyu-monitor.zip` | WorkBuddy 技能包上传 |
 | `release/dsh-plugin-xianyu-monitor-0.1.2.tgz` | `cd plugins/dsh && npm pack --pack-destination ../../release` | DSH 条目可选的 `tarball:`（挂到 GitHub Release） |
 
-
-两条 DSH 渠道是**互补**的：精选目录面向「搜得到」，自建索引面向「不依赖审核的兜底」。
-
 ## 阅读顺序
 
-1. `awesome-dsh-plugin/PR.md` —— 官方目录的条目规则、逐条 CI 对照、PR 命令、常见打回原因
+1. `dsh/PR.md` —— 官方目录的条目规则、逐条 CI 对照、PR 命令、常见打回原因
 2. `workbuddy/UPLOAD.md` —— 技能包结构、frontmatter 必填字段、开放平台提交流程、解析失败排查
 3. 仓库根 `PUBLISHING.md` —— 开源、Release、Pages、合规这些上游动作
 
@@ -51,6 +64,6 @@ CI 的 `hygiene` job 已经接上这一步；`node scripts/check-plugin-versions
 ## 发布节奏（建议）
 
 ```
-改代码 → 三处版本号同步 → 打包 + 自检 → 提 PR（一个 YAML 文件）
-                                   ↘ 开放平台上传新 zip（WorkBuddy）
+改代码 → 三处版本号同步 → 打包 + 自检 → 提 PR（dsh/data/plugins 下一个 YAML）
+                                   ↘ 开放平台上传新 zip（workbuddy）
 ```

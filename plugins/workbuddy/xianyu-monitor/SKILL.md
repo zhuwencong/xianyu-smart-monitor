@@ -9,10 +9,10 @@ examples_zh:
   - "今天闲鱼监控抓到什么值得看的？"
   - "显卡那个任务为什么两天没出结果？"
   - "把评分 85 以上的候选列出来，帮我看哪几个值得联系卖家"
-  - "第二条收藏了，别再推给我"
 examples_en:
   - "What did my Xianyu monitor find today?"
   - "Why has the GPU task produced nothing for two days?"
+  - "List the candidates scored 85 or above and tell me which are worth contacting."
 allowed-tools: Bash, Read
 version: 0.1.2
 author: 闲鱼智能监控 Contributors

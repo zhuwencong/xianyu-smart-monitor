@@ -169,7 +169,7 @@ node scripts/check-publish-artifacts.mjs
 | `version` | `0.1.2` | 与 `plugins/dsh/package.json` 同值，`check-plugin-versions.mjs` 会校验 |
 | `author` | 闲鱼智能监控 Contributors | 换成你的署名 |
 | `allowed-tools` | `Bash, Read` | 只需要执行脚本与读参考文件 |
-| `examples_zh` / `examples_en` | 各 4 条 | 展示在详情页「试试这样用」 |
+| `examples_zh` / `examples_en` | 各 3 条 | 详情页「试试这样用」；**平台上限 3 条，中英数量必须一致** |
 
 ### 2.3 提交
 
@@ -201,7 +201,7 @@ DSH 有**两条**入口，别混：
 | 「发现 → 索引源」自定义市场 | 自己的 `format: 1` 索引 | `market/index.json` | 静态托管，用户手动添加索引 URL |
 
 官方目录的条目格式、PR 命令与逐条 CI 对照都在
-[`publish/awesome-dsh-plugin/PR.md`](publish/awesome-dsh-plugin/PR.md)，
+[`publish/dsh/PR.md`](publish/dsh/PR.md)（材料按平台分目录：`publish/dsh/`、`publish/workbuddy/`），
 `node scripts/check-publish-artifacts.mjs` 会一并校验。**下面 3.1–3.5 讲的是自建索引这条。**
 
 DSH 的自建索引本质是**一个 JSON 索引 + 一个图标目录**，托管在任意静态站点。

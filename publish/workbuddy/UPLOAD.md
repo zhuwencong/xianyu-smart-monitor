@@ -33,7 +33,7 @@ xianyu-monitor/          ← 目录名 = frontmatter 的 name
 | `description_en` | ✅ | 详情页短介绍 | 一句话，英文 |
 | `version` | ✅ | 版本号，与 DSH 插件同步 | `0.1.2`（`package.json` 同值，CI 会校验） |
 | `author` | ✅ | **合作方名称**（审核会看） | 闲鱼智能监控 Contributors |
-| `examples_zh` / `examples_en` | 可选 | 详情页「试试这样用」 | 各 4 条 |
+| `examples_zh` / `examples_en` | 可选 | 详情页「试试这样用」 | 各 3 条（**上限 3 条，且中英数量必须一致**） |
 | `allowed-tools` | 可选 | 工具白名单，逗号分隔 | `Bash, Read` |
 
 > 字段名是**带下划线的**（`display_name`、`description_zh`、`examples_en`），不是 DSH 技能那套。
@@ -89,6 +89,8 @@ node scripts/check-publish-artifacts.mjs
 | 解析失败 | zip 多套一层目录 | 用本仓库脚本重打，别手压 |
 | 解析失败 | 缺 `display_name_en` / `author` / `version` | 对照第 1 节补齐 |
 | 解析失败 | frontmatter 里 `description` 含 `<` `>` | 改成文字描述（WorkBuddy 的校验器会直接拒） |
+| 解析失败：`examples_zh 最多 3 个示例，当前 4 个` | 平台对示例条数有硬上限 3（文档没写，上传时才报） | 中英各留 3 条，别多写 |
+| 解析失败：`examples_zh 与 examples_en 数量必须一致` | 两种语言的示例是成对的 | 补齐或删到两边同数 |
 | 装上但跑不动 | 脚本用到了项目 `.venv` 的第三方包 | 保持 `xy.py` 只用标准库 |
 | 装上没反应 | `SKILL.md` 里的脚本路径写成了绝对路径 | 一律相对技能目录：`python scripts/xy.py status` |
 | 一执行就报连不上 | 用户没启动监控服务 | 保留 SKILL.md 里「先 status、再提示启动」那段 |

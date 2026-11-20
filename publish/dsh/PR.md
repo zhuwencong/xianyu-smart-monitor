@@ -95,10 +95,10 @@ git checkout -b add/xianyu-smart-monitor
 
 # 2) 放条目（在本仓库根目录执行）
 mkdir -p ../awesome-dsh-plugin/data/plugins
-cp publish/awesome-dsh-plugin/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml \
+cp publish/dsh/data/plugins/zhuwencong__xianyu-smart-monitor--plugins-dsh.yml \
    ../awesome-dsh-plugin/data/plugins/
 
-# 3) 可选：截图。把 publish/awesome-dsh-plugin/data/screenshots.json 里的键值
+# 3) 可选：截图。把 publish/dsh/data/screenshots.json 里的键值
 #    合并进 ../awesome-dsh-plugin/data/screenshots.json（不要整份覆盖）
 
 # 4) 重新生成两个 README —— 必须，且不要手改 README

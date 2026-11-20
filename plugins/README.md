@@ -17,7 +17,7 @@
 
 ### DSH
 
-官方精选目录（内置市场/发现页）：按 [`publish/awesome-dsh-plugin/PR.md`](../publish/awesome-dsh-plugin/PR.md) 提一个 YAML 条目。
+官方精选目录（内置市场/发现页）：按 [`publish/dsh/PR.md`](../publish/dsh/PR.md) 提一个 YAML 条目。
 
 自建索引源（备用）：
 

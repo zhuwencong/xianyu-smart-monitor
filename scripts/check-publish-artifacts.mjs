@@ -2,11 +2,11 @@
 /**
  * 校验「上架材料」是否满足两条官方渠道的格式要求（零依赖，CI 可直接跑）：
  *
- *   1. awesome-dsh-plugin 精选目录条目
+ *   1. awesome-dsh-plugin 精选目录条目（材料在 publish/dsh/）
  *      data/plugins/<owner>__<repo>[--<子包路径用-连接>].yml
  *      → 文件名、url、name 三者必须自洽；category 在枚举内；description 结尾与引号正确
  *
- *   2. WorkBuddy 技能包
+ *   2. WorkBuddy 技能包（材料在 publish/workbuddy/）
  *      plugins/workbuddy/<skill>/SKILL.md → 8 个必填 frontmatter 字段 + 命名规范
  *      release/<skill>.zip              → 根目录只有一层技能目录、无 __pycache__、CRC 完好
  *
@@ -22,8 +22,8 @@ import { inflateRawSync } from 'node:zlib'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
 
-const ENTRY_DIR = join(REPO_ROOT, 'publish', 'awesome-dsh-plugin', 'data', 'plugins')
-const SCREENSHOTS = join(REPO_ROOT, 'publish', 'awesome-dsh-plugin', 'data', 'screenshots.json')
+const ENTRY_DIR = join(REPO_ROOT, 'publish', 'dsh', 'data', 'plugins')
+const SCREENSHOTS = join(REPO_ROOT, 'publish', 'dsh', 'data', 'screenshots.json')
 const SKILL_DIR = join(REPO_ROOT, 'plugins', 'workbuddy', 'xianyu-monitor')
 const PLUGIN_DIR = join(REPO_ROOT, 'plugins', 'dsh')
 
@@ -167,10 +167,20 @@ function frontmatter(text) {
   const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) return null
   const fields = {}
+  let current = null
   for (const line of match[1].split(/\r?\n/)) {
+    // 列表项（examples_zh / examples_en 这类）
+    const item = line.match(/^\s+-\s+(.*)$/)
+    if (item && current) {
+      if (!Array.isArray(fields[current])) fields[current] = []
+      fields[current].push(unquote(item[1]).value)
+      continue
+    }
     const m = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/)
     if (!m) continue
-    fields[m[1]] = unquote(m[2]).value
+    current = m[1]
+    const value = unquote(m[2]).value
+    fields[current] = value === '' ? [] : value
   }
   return fields
 }
@@ -368,6 +378,28 @@ function checkSkill(pkg, zipPath) {
   if (fields.description && /[<>]/.test(fields.description)) {
     fail('description 不能含 < 或 >（WorkBuddy 校验器会直接拒）')
   }
+
+  // 平台实测约束（2026-11-20 上传被拒的原文）：examples 最多 3 条，且中英数量必须一致
+  const exZh = fields.examples_zh
+  const exEn = fields.examples_en
+  for (const [label, list] of [
+    ['examples_zh', exZh],
+    ['examples_en', exEn],
+  ]) {
+    if (Array.isArray(list) && list.length > 3) {
+      fail(`${label} 最多 3 条示例（平台会判解析失败），当前 ${list.length} 条`)
+    }
+    if (Array.isArray(list) && list.some((item) => !item.trim())) {
+      fail(`${label} 里有空示例`)
+    }
+  }
+  if (Array.isArray(exZh) && Array.isArray(exEn) && exZh.length !== exEn.length) {
+    fail(`examples_zh 与 examples_en 数量必须一致：当前中文 ${exZh.length} 条、英文 ${exEn.length} 条`)
+  }
+  if (Array.isArray(exZh) !== Array.isArray(exEn)) {
+    warn('examples 只写了一种语言：平台要求中英数量一致，建议两边都写或都删')
+  }
+
   if (SKILL_REQUIRED.every((field) => fields[field])) {
     ok(`frontmatter 必填字段齐全，version=${fields.version}`)
   }
