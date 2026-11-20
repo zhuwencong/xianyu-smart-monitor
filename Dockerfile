@@ -23,17 +23,40 @@ COPY requirements-runtime.txt .
 
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-runtime.txt
 
+# Chromium 运行库：与 `playwright install --with-deps` 在 Debian 12 上安装的那组一致
+# （取自 playwright driver 内置的依赖表）。显式装出来，构建期就不再调用
+# playwright 的依赖安装分支——那条分支会再去派生 sh/apt，失败时只回一个 exit 127。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
         libzbar0 \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libatspi2.0-0 \
+        libcairo2 \
+        libcups2 \
+        libdbus-1-3 \
+        libdrm2 \
+        libgbm1 \
+        libglib2.0-0 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libwayland-client0 \
+        libx11-6 \
+        libxcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m playwright install --with-deps --no-shell chromium \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN python -m playwright install --no-shell chromium
 
 COPY --from=frontend-builder /dist /app/dist
 
