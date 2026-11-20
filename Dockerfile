@@ -31,14 +31,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     TZ=Asia/Shanghai
 
-COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
+# 显式写死路径，不依赖 ${VIRTUAL_ENV} 的变量展开：一旦展开没生效，
+# venv 会被拷到名字字面的目录里，后面的 playwright 就变成「命令未找到」(127)。
+COPY --from=builder /opt/venv /opt/venv
 
-RUN apt-get update \
+# 先断言包确实进了这个 venv，再调 playwright；两者都用绝对路径，
+# 不再依赖 PATH 或 console script 是否存在。
+RUN /opt/venv/bin/python -c "import importlib.metadata as m; print('playwright', m.version('playwright'))" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
         libzbar0 \
-    && playwright install --with-deps --no-shell chromium \
+    && /opt/venv/bin/python -m playwright install --with-deps --no-shell chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
