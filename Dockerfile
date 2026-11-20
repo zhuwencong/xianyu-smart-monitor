@@ -6,44 +6,28 @@ RUN npm ci
 COPY web-ui/ .
 RUN npm run build
 
-# Stage 2: Build the python environment with dependencies
-FROM python:3.11-slim-bookworm AS builder
-
-# 设置环境变量以防止交互式提示
-ENV DEBIAN_FRONTEND=noninteractive \
-    VIRTUAL_ENV=/opt/venv \
-    PATH="/opt/venv/bin:$PATH"
-
-# 创建虚拟环境并安装 Python 运行时依赖
-RUN python3 -m venv $VIRTUAL_ENV
-COPY requirements-runtime.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-runtime.txt
-
-# Stage 3: Create the final, lean image
+# Stage 2: Create the final, lean image
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive \
-    VIRTUAL_ENV=/opt/venv \
-    PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     RUNNING_IN_DOCKER=true \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     TZ=Asia/Shanghai
 
-# 显式写死路径，不依赖 ${VIRTUAL_ENV} 的变量展开：一旦展开没生效，
-# venv 会被拷到名字字面的目录里，后面的 playwright 就变成「命令未找到」(127)。
-COPY --from=builder /opt/venv /opt/venv
+# 依赖直接装进本镜像的 Python，不再跨阶段拷贝 venv。
+# 旧写法用 `COPY --from=builder /opt/venv` 复用 venv：拷贝一旦没落地，
+# 后面的 playwright 就退化成「命令未找到」(exit 127)，日志里也看不出原因。
+COPY requirements-runtime.txt .
 
-# 先断言包确实进了这个 venv，再调 playwright；两者都用绝对路径，
-# 不再依赖 PATH 或 console script 是否存在。
-RUN /opt/venv/bin/python -c "import importlib.metadata as m; print('playwright', m.version('playwright'))" \
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-runtime.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
         libzbar0 \
-    && /opt/venv/bin/python -m playwright install --with-deps --no-shell chromium \
+    && python -m playwright install --with-deps --no-shell chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
