@@ -21,13 +21,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # 后面的 playwright 就退化成「命令未找到」(exit 127)，日志里也看不出原因。
 COPY requirements-runtime.txt .
 
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-runtime.txt \
-    && apt-get update \
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-runtime.txt
+
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
         libzbar0 \
-    && python -m playwright install --with-deps --no-shell chromium \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m playwright install --with-deps --no-shell chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
