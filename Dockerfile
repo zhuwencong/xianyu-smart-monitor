@@ -31,6 +31,9 @@ RUN apt-get update \
         tzdata \
         tini \
         libzbar0 \
+        libstdc++6 \
+        libgcc-s1 \
+        libatomic1 \
         libasound2 \
         libatk-bridge2.0-0 \
         libatk1.0-0 \
@@ -55,6 +58,13 @@ RUN apt-get update \
         libxrandr2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# 自检：playwright 自带的 node 必须能执行。缺共享库时它在 Linux 上以 127 退出，
+# 而 python -m playwright 又把该退出码原样透传，最终只看得到笼统的 127。
+# 这里用不同退出码定位：90 = 二进制缺失，91 = 存在但起不来。
+RUN NODE=/usr/local/lib/python3.11/site-packages/playwright/driver/node; \
+    if [ ! -x "$NODE" ]; then echo "driver node missing: $NODE"; exit 90; fi; \
+    "$NODE" --version || exit 91
 
 RUN python -m playwright install --no-shell chromium
 
