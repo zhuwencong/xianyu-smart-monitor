@@ -1,23 +1,29 @@
 <p align="center">
-  <img src="static/brand/logo_256.png" width="104" alt="闲鱼智能监控">
+  <img src="static/brand/logo_256.png" width="104" alt="二手商品智能监控">
 </p>
 
-# 闲鱼智能监控系统
+# 二手商品智能监控系统
 
 [中文] ｜ [English](README_EN.md)
 
-基于 Playwright 和 AI 的闲鱼多任务实时监控，提供完整的 Web 管理界面。
+> 本仓库是 GitHub 主仓库的国内镜像，**Issue / PR 请提交到 GitHub**：
+> `https://github.com/zhuwencong/xianyu-smart-monitor`
+>
+> GitHub 侧更新更及时，Gitee 侧按周同步。
 
-[![CI](https://github.com/zhuwencong/xianyu-smart-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuwencong/xianyu-smart-monitor/actions/workflows/ci.yml)
+[![star](https://gitee.com/xingchencong/secondhand-smart-monitor/badge/star.svg?theme=dark)](https://gitee.com/xingchencong/secondhand-smart-monitor/stargazers)
+[![fork](https://gitee.com/xingchencong/secondhand-smart-monitor/badge/fork.svg?theme=dark)](https://gitee.com/xingchencong/secondhand-smart-monitor/members)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab.svg)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org/)
-[![Release](https://img.shields.io/github/v/release/zhuwencong/xianyu-smart-monitor?display_name=tag)](https://github.com/zhuwencong/xianyu-smart-monitor/releases)
+
+基于 Playwright 与 AI 的**多任务商品监控系统**，自带完整 Web 管理界面，可 Docker 自托管。
+本项目以闲鱼（二手交易平台）为主要适配对象，架构上不绑定具体站点。
 
 > **来源说明**：本项目是 [Usagi-org/ai-goofish-monitor](https://github.com/Usagi-org/ai-goofish-monitor)（MIT，© 2025 dingyufei615）的**衍生版本**，不是从零开始的独立项目。
 > 上游的重构与扩展清单见 [NOTICE](NOTICE) 与 [CHANGELOG](CHANGELOG.md)。上游的版权声明保留在 [LICENSE](LICENSE) 中。
 >
-> **仅供学习与技术研究**。请遵守闲鱼用户协议，不要提高抓取频率；详见 [免责声明](DISCLAIMER.md) 与 [安全策略](SECURITY.md)。
+> **仅供学习与技术研究**。请遵守目标平台的用户协议，不要提高抓取频率；详见 [免责声明](DISCLAIMER.md) 与 [安全策略](SECURITY.md)。
 
 ## 这个版本相比上游做了什么
 
