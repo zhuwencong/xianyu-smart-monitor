@@ -104,6 +104,22 @@ async def _run_daily_report() -> None:
         print(f"[日报] 执行失败（不影响服务）: {exc}")
 
 
+async def _run_listing_check() -> None:
+    """定时巡检结果列表里排名靠前的商品，把已售出/已下架的标记出来。"""
+    try:
+        from src.services.listing_health_service import check_all_result_files
+
+        results = await check_all_result_files()
+        expired = sum(int(r.get("sold", 0)) + int(r.get("gone", 0)) for r in results)
+        risk = any(r.get("risk_control") for r in results)
+        print(
+            f"[上架巡检] 巡检 {len(results)} 个结果文件，标记下架 {expired} 条"
+            + ("（触发风控，本轮提前收手）" if risk else "")
+        )
+    except Exception as exc:
+        print(f"[上架巡检] 执行失败（不影响服务）: {exc}")
+
+
 process_service.set_lifecycle_hooks(
     on_started=lambda task_id: _sync_task_runtime_status(task_id, True),
     on_stopped=lambda task_id: _sync_task_runtime_status(task_id, False),
@@ -176,6 +192,24 @@ async def lifespan(app: FastAPI):
             print(f"每日监控日报已排程（每天 {daily_report_hour()}:05）")
     except Exception as exc:
         print(f"日报任务排程失败（不影响服务）: {exc}")
+
+    # 上架状态巡检：每天两次，只查各结果文件里排名最靠前的 6 条。
+    # 时间刻意避开 :23 / :53 的抓取轮，免得两个浏览器打架、也免得风控叠在一起。
+    try:
+        if os.getenv("LISTING_CHECK_ENABLED", "true").lower() != "false":
+            scheduler_service.scheduler.add_job(
+                _run_listing_check,
+                "cron",
+                hour="10,22",
+                minute=10,
+                id="listing_health_check",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            print("上架状态巡检已排程（每天 10:10 / 22:10，各文件前 6 条）")
+    except Exception as exc:
+        print(f"上架巡检任务排程失败（不影响服务）: {exc}")
 
     print("应用启动完成")
 

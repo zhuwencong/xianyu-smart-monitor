@@ -42,6 +42,7 @@ const crawlTime = props.item.爬取时间
 const matchScore = ai?.value_score ?? 0
 const isHidden = computed(() => props.item._effective_hidden === true || props.item._status === 'hidden')
 const isRuleHidden = computed(() => props.item._hidden_reason === 'rule')
+const isExpired = computed(() => props.item._status === 'expired' || props.item._hidden_reason === 'expired')
 const canToggleBlock = computed(() => props.item._hidden_reason !== 'rule' && props.item._hidden_reason !== 'expired')
 const hiddenLabel = computed(() => {
   if (props.item._hidden_reason === 'rule') return t('results.card.blacklisted')
@@ -55,7 +56,7 @@ const expanded = ref(false)
 <template>
   <Card class="group flex flex-col h-full border-none shadow-glass hover:shadow-card-hover transition-all duration-300 rounded-2xl overflow-hidden bg-white/80 backdrop-blur-sm" :class="{ 'opacity-50': isHidden }">
     <!-- Image Header -->
-    <div class="relative aspect-[4/3] overflow-hidden">
+    <div class="relative aspect-[4/3] overflow-hidden" :class="{ 'grayscale-[60%]': isExpired }">
       <div class="absolute inset-0 bg-slate-200 animate-pulse" v-if="!imageUrl"></div>
       <img
         v-else
@@ -75,6 +76,9 @@ const expanded = ref(false)
         </Badge>
         <Badge v-if="isRuleHidden" variant="secondary" class="bg-slate-900/75 text-white border-none backdrop-blur-md shadow-sm">
           {{ t('results.card.blacklisted') }}
+        </Badge>
+        <Badge v-if="isExpired" variant="secondary" class="bg-slate-600/85 text-white border-none backdrop-blur-md shadow-sm">
+          {{ t('results.card.expired') }}
         </Badge>
       </div>
       <div class="absolute top-3 right-3 flex gap-1.5">

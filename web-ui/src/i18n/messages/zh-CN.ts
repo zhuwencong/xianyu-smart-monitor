@@ -260,7 +260,7 @@ const zhCN = {
       detail: '详情',
       hidden: '已屏蔽',
       blacklisted: '规则屏蔽',
-      expired: '已过期',
+      expired: '已下架',
       block: '屏蔽',
       unblock: '取消屏蔽',
     },

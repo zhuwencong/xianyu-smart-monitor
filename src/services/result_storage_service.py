@@ -110,7 +110,9 @@ def _decorate_record_visibility(record: dict, status: str | None, blacklist_keyw
     record["_status"] = status or "active"
     record["_matched_blacklist_keywords"] = matched_keywords
     record["_hidden_reason"] = hidden_reason
-    record["_effective_hidden"] = hidden_reason is not None
+    # 已下架（expired）刻意不隐藏：用户要的是“标注出来”，而不是让它凭空消失。
+    # 手动隐藏（manual）和黑名单命中（rule）仍然照旧折叠。
+    record["_effective_hidden"] = hidden_reason in ("manual", "rule")
     return record
 
 

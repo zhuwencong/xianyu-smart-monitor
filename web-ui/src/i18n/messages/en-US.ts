@@ -260,7 +260,7 @@ const enUS = {
       detail: 'Open',
       hidden: 'Hidden',
       blacklisted: 'Rule Hidden',
-      expired: 'Expired',
+      expired: 'Delisted',
       block: 'Block',
       unblock: 'Unblock',
     },

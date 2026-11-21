@@ -174,8 +174,25 @@ def init_schema(conn: sqlite3.Connection) -> None:
         conn.execute(statement)
     _migrate_result_items_status(conn)
     _migrate_result_items_review_status(conn)
+    _migrate_result_items_listing_checked_at(conn)
     _migrate_task_title_filters(conn)
     conn.commit()
+
+
+def _migrate_result_items_listing_checked_at(conn: sqlite3.Connection) -> None:
+    """为上架状态巡检添加 listing_checked_at 列（记录最后一次巡检时间）。"""
+    row = conn.execute(
+        "SELECT value FROM app_metadata WHERE key = 'migration:result_items_listing_check'"
+    ).fetchone()
+    if row is not None:
+        return
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(result_items)").fetchall()]
+    if "listing_checked_at" not in cols:
+        conn.execute("ALTER TABLE result_items ADD COLUMN listing_checked_at TEXT")
+    conn.execute(
+        "INSERT OR REPLACE INTO app_metadata(key, value)"
+        " VALUES ('migration:result_items_listing_check', 'done')"
+    )
 
 
 def _migrate_task_title_filters(conn: sqlite3.Connection) -> None:

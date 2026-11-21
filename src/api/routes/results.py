@@ -8,6 +8,11 @@ from enum import Enum
 from pydantic import BaseModel
 from urllib.parse import quote
 
+from src.services.listing_health_service import (
+    DEFAULT_CHECK_LIMIT,
+    MAX_CHECK_LIMIT,
+    check_listing_status,
+)
 from src.services.price_history_service import build_price_history_insights
 from src.services.result_export_service import build_results_csv
 from src.services.result_file_service import (
@@ -202,6 +207,27 @@ async def patch_item_status(filename: str, item_id: str, body: UpdateStatusReque
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"message": "状态已更新", "status": body.status.value}
+
+
+class ListingCheckRequest(BaseModel):
+    limit: int = DEFAULT_CHECK_LIMIT
+    force: bool = False
+
+
+@router.post("/{filename}/listing-check")
+async def post_listing_check(filename: str, body: ListingCheckRequest | None = None):
+    """巡检排名靠前的商品是否还在售，已售出/已下架的标记为 expired。"""
+    limit = (body.limit if body else DEFAULT_CHECK_LIMIT) or DEFAULT_CHECK_LIMIT
+    limit = max(1, min(int(limit), MAX_CHECK_LIMIT))
+    force = bool(body.force) if body else False
+    try:
+        validate_result_filename(filename)
+        result = await check_listing_status(filename, limit, force=force)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"上架状态巡检失败: {exc}")
+    return result
 
 
 @router.get("/{filename}/blacklist-rules")
