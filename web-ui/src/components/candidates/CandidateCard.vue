@@ -224,10 +224,15 @@ function openDetail() {
             <span class="font-bold text-[#40526C]">判断依据：</span>{{ evidence }}
           </p>
         </div>
-        <div class="flex gap-1.5">
-          <CircleHelp class="mt-[2px] h-3.5 w-3.5 shrink-0 text-[#C08A33]" :stroke-width="1.9" />
-          <p class="line-clamp-1 text-[#7A879B]">
-            <span class="font-bold text-[#8A651F]">还需确认：</span>{{ missing }}
+        <!-- 「还需确认」是唯一能改变结论的部分，做成醒目的提示块。
+             压成一行灰字时它总被跳过，而它恰恰决定了「要不要下手」。 -->
+        <div
+          v-if="missing"
+          class="flex items-start gap-1.5 rounded-md border border-[#F2E0C2] bg-[#FFFBF2] px-2 py-1.5"
+        >
+          <CircleHelp class="mt-[1px] h-3.5 w-3.5 shrink-0 text-[#C08A33]" :stroke-width="2.2" />
+          <p class="line-clamp-2 text-[11.5px] leading-[1.5] text-[#8A651F]">
+            <span class="font-black">还需确认：</span>{{ missing }}
           </p>
         </div>
       </div>
