@@ -93,7 +93,9 @@ function barTone(dim: OfferDimension) {
  * 然后才会去看「电池未知」这个真正的原因。
  */
 function valueTone(dim: OfferDimension) {
-  if (!dim.scored || dim.value === null) return 'text-[#B6C2D2]'
+  // 不可判用中间灰：比有值浅（表示「不是分数」），但必须能读清——
+  // 太浅会像禁用项，而它其实是「这项缺数据，需要去问卖家」。
+  if (!dim.scored || dim.value === null) return 'text-[#94A2B8]'
   const ratio = dim.value / dim.max
   if (ratio >= 0.8) return 'text-[#15805E]'
   if (ratio >= 0.5) return 'text-[#2F5FA8]'
@@ -273,7 +275,7 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
         <div v-for="dim in priceDims" :key="dim.key" class="flex items-center gap-2">
           <span
             class="shrink-0 font-bold leading-none"
-            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#4A5C75]' : 'text-[#AEBACA]']"
+            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#4A5C75]' : 'text-[#8E9CB0]']"
             :title="`${dim.label}（满分 ${dim.max} 分）`"
           >
             {{ dim.label }}
@@ -305,7 +307,7 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
         <div v-for="dim in otherDims" :key="dim.key" class="flex items-center gap-2">
           <span
             class="shrink-0 font-bold leading-none"
-            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#6B7C93]' : 'text-[#AEBACA]']"
+            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#6B7C93]' : 'text-[#8E9CB0]']"
             :title="`${dim.label}（满分 ${dim.max} 分）`"
           >
             {{ dim.label }}
