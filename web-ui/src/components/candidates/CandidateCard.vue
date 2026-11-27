@@ -27,7 +27,11 @@ const emit = defineEmits<{
 const imageFailed = ref(false)
 
 // 徽标必须与下方的绝对分评级同源，否则会出现「右上角写建议关注、
-// 底下红条写别买」的自相矛盾。否决 > 评级 > AI 判断，按这个优先级取。
+// 底下红条写别买」的自相矛盾。否决 > 绝对分评级 > AI 判断，按这个优先级取。
+//
+// 注意：只要有 offer，就**一律**用 offer.grade，包括 negotiate / watch。
+// 曾经的写法是 negotiate/watch 时才回退到 ai_verdict，结果卡片右上角写着
+// 「需核实」、下面评分写着「60 分可谈」，同一张卡两个结论，用户不知道该信哪个。
 const tone = computed(() => {
   const offer = props.candidate.offer
   if (offer?.vetoed) {
@@ -37,18 +41,32 @@ const tone = computed(() => {
       label: '一票否决',
     }
   }
-  if (offer?.grade === 'buy') {
-    return {
-      badge: 'border-[#A9E2CB] bg-[#E8F8F1] text-[#0C7A56]',
-      icon: Sparkles,
-      label: '直接冲',
-    }
-  }
-  if (offer?.grade === 'skip') {
-    return {
-      badge: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#64748B]',
-      icon: XCircle,
-      label: '跳过',
+  if (offer) {
+    switch (offer.grade) {
+      case 'buy':
+        return {
+          badge: 'border-[#A9E2CB] bg-[#E8F8F1] text-[#0C7A56]',
+          icon: Sparkles,
+          label: '直接冲',
+        }
+      case 'negotiate':
+        return {
+          badge: 'border-[#F0DCA4] bg-[#FFF8E4] text-[#9A6A08]',
+          icon: Sparkles,
+          label: '可谈',
+        }
+      case 'watch':
+        return {
+          badge: 'border-[#F2D2B0] bg-[#FFF4E8] text-[#A2570C]',
+          icon: ShieldAlert,
+          label: '观望',
+        }
+      default:
+        return {
+          badge: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#64748B]',
+          icon: XCircle,
+          label: '跳过',
+        }
     }
   }
   switch (props.candidate.ai_verdict) {

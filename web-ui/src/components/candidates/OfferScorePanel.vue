@@ -273,7 +273,7 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
         <div v-for="dim in priceDims" :key="dim.key" class="flex items-center gap-2">
           <span
             class="shrink-0 font-bold leading-none"
-            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10px]', dim.scored ? 'text-[#5B6B82]' : 'text-[#B6C2D2]']"
+            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#4A5C75]' : 'text-[#AEBACA]']"
             :title="`${dim.label}（满分 ${dim.max} 分）`"
           >
             {{ dim.label }}
@@ -305,7 +305,7 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
         <div v-for="dim in otherDims" :key="dim.key" class="flex items-center gap-2">
           <span
             class="shrink-0 font-bold leading-none"
-            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10px]', dim.scored ? 'text-[#6B7C93]' : 'text-[#B6C2D2]']"
+            :class="[isFull ? 'w-[58px] text-[11px]' : 'w-[52px] text-[10.5px]', dim.scored ? 'text-[#6B7C93]' : 'text-[#AEBACA]']"
             :title="`${dim.label}（满分 ${dim.max} 分）`"
           >
             {{ dim.label }}
