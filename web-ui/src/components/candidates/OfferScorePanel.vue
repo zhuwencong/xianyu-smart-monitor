@@ -217,8 +217,10 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
             </span>
             <span class="text-[10px] font-bold leading-none text-[#94A2B8]">/100</span>
           </div>
-          <!-- 紧凑模式也显示评级文字：只给一个「60」等于什么也没说 -->
+          <!-- 评级文字只在详情页显示：卡片右上角已有同源徽标，
+               重复显示会把价格 chip 挤到窄列里换行，反而更难读。 -->
           <span
+            v-if="isFull"
             class="mt-1 inline-flex items-center rounded border px-1.5 py-[2px] text-[10px] font-black leading-none"
             :class="gradeTone.badge"
           >
@@ -381,4 +383,10 @@ const missingWeight = computed(() => props.offer.max_total - props.offer.scored_
             {{ item.label }} {{ item.delta > 0 ? '+' : '' }}{{ item.delta }}
           </span>
         </div>
-        <p v-if="offer.new_price_note" class="pt-1 
+        <p v-if="offer.new_price_note" class="pt-1 text-[9.5px] leading-[1.5] text-[#B6C2D2]">
+          全新价锚点来源：{{ offer.new_price_note }}
+        </p>
+      </div>
+    </div>
+  </div>
+</template>

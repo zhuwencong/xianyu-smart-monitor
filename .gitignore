@@ -111,3 +111,7 @@ release/
 .tmp_*
 .pytest_tmp/
 *.pt2.txt
+
+# 调试用的一次性脚本与截图（.shot.py / .ui1.png 之类）
+.shot*.py
+.ui*.png
