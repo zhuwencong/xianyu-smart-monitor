@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 from src.domain.scoring import (
     breakdown_payload,
+    estimate_gpu_perf,
     evaluate_gates,
     extract_specs,
     price_score,
@@ -22,6 +23,13 @@ from src.domain.scoring import (
     task_allows_professional,
 )
 from src.domain.scoring.specs import looks_like_gpu_task
+from src.domain.scoring.offer_score import (
+    OfferFacts,
+    count_sold,
+    registered_months,
+    score_offer,
+    storage_matches,
+)
 from src.failure_guard import FailureGuard
 from src.infrastructure.config.env_manager import env_manager
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
@@ -31,7 +39,12 @@ from src.services.notification_config_service import (
     build_configured_channels,
     load_notification_settings,
 )
-from src.services.price_history_service import parse_price_value
+from src.services.price_history_service import (
+    DEFECT_LABEL,
+    DEFECT_PRICE_NOTE,
+    parse_price_value,
+)
+from src.services.publish_time_filter import build_publish_time_filter, parse_publish_time
 from src.services.task_run_service import STATUS_LABELS, TaskRunService
 from src.utils import resolve_task_log_path
 
@@ -48,6 +61,17 @@ AI_LABELS = {
     "failed": "AI分析失败",
 }
 AI_PRIORITY = {"recommend": 0, "verify": 1, "mismatch": 2, "failed": 3}
+
+# 工作台默认只看「上架 5 天内」的候选。
+#
+# 为什么要这道门槛：闲鱼上真正有性价比的机器，挂出去几小时内就会被拍走。
+# 一条上架一周还没成交的记录，留在前台只会把当天新出的货挤到第二页，
+# 属于"看过就该放下"的噪音。数据库里一条都不删——后台统计、比价样本、
+# 脚本复盘都还要用，只是默认不往人眼前摆。
+#
+# 判据以「发布/上架时间」为准而不是抓取时间：老链接会被反复抓到，
+# 抓取时间永远是新的，那样等于没过滤。
+DEFAULT_VISIBLE_DAYS = 5
 
 CRITERIA_LABELS = {
     "model_chip": "型号与规格",
@@ -307,6 +331,21 @@ def _build_gates(
     return specs, gates
 
 
+def _perf_payload(specs) -> dict[str, Any] | None:
+    """显卡性能评估的展示载荷；非显卡或型号不认识时返回 None。"""
+    if specs is None or not getattr(specs, "is_real_gpu", False):
+        return None
+    try:
+        perf = estimate_gpu_perf(
+            getattr(specs, "model_family", ""),
+            getattr(specs, "vram_gb", None),
+            getattr(specs, "raw_text", ""),
+        )
+    except Exception:  # pragma: no cover - 性能分只是展示用，算不出来不影响主流程
+        return None
+    return perf.as_dict() if perf is not None else None
+
+
 def _score_breakdown(
     analysis: dict[str, Any],
     criteria: list[dict[str, Any]],
@@ -315,32 +354,47 @@ def _score_breakdown(
     insight: dict[str, Any],
     verdict: str,
     gates=None,
+    specs=None,
 ) -> tuple[int | None, list[dict[str, Any]]]:
     if analysis.get("error") or not analysis:
         return None, []
+
     by_key = {item["key"]: item for item in criteria}
 
     def score_for(keys: tuple[str, ...], default: int) -> int:
         values = [_status_score(by_key[key]["status"]) for key in keys if key in by_key]
         return _average(values, default)
 
+    # 「匹配」只反映 AI 对型号/配置的核对结论，不再因为 verdict=mismatch 就一律
+    # 压到 35——那样所有被否决的商品在这一维完全相同，分数彻底失去区分度。
+    # 是否属于 mismatch 由 verdict 单独表达，这一维只回答「信息核对得怎么样」。
     match = score_for(("model_chip", "model", "storage", "screen"), 72)
-    if verdict == "mismatch":
-        match = min(match, 35)
-    elif verdict == "verify":
-        match = min(match, 70)
+
     seller = score_for(("seller_type", "seller_credit"), 65)
     evidence = score_for(
         ("history", "battery_health", "warranty", "accessories", "condition", "shipping"),
         60,
     )
     price_dimension, _price_source = price_score(price, insight, analysis.get("value_score"))
-    dimensions = {
+
+    dimensions: dict[str, int] = {
         "match": match,
         "price": price_dimension,
         "seller": seller,
         "evidence": evidence,
     }
+
+    # 性能维度：只对显卡生效。型号认不出来时不塞假分，直接不参与加权
+    # （resolve_overall 会按实际存在的维度重新归一化权重）。
+    if specs is not None and getattr(specs, "is_gpu", False):
+        perf = estimate_gpu_perf(
+            getattr(specs, "model_family", ""),
+            getattr(specs, "vram_gb", None),
+            getattr(specs, "raw_text", ""),
+        )
+        if perf is not None:
+            dimensions["perf"] = perf.score
+
     overall = resolve_overall(
         dimensions=dimensions,
         ai_value_score=analysis.get("value_score"),
@@ -348,6 +402,90 @@ def _score_breakdown(
         gates=gates,
     )
     return overall, breakdown_payload(dimensions)
+
+
+def _apply_defect_guard(
+    label: str | None,
+    *,
+    title: object,
+    description: object = "",
+) -> tuple[str | None, str]:
+    """故障机的价格标签不允许是「高性价比」这类正向结论。
+
+    返回 (标签, 说明)。label 为空时保持为空，只补一条故障说明。
+    """
+    try:
+        specs = extract_specs(title, description)
+    except Exception:  # pragma: no cover - 抽不到就当没故障，保持原逻辑
+        return label, ""
+    if not specs.defects:
+        return label, ""
+    return DEFECT_LABEL, f"{DEFECT_PRICE_NOTE}（{'、'.join(specs.defects)}）"
+
+
+def _offer_facts(
+    *,
+    row: Any,
+    product: dict[str, Any],
+    seller: dict[str, Any],
+    insight: dict[str, Any],
+    price: float | None,
+    task: Any | None = None,
+) -> OfferFacts:
+    """把一条结果记录整理成绝对分模型的输入事实。
+
+    时间基准取这条记录自己的 ``crawl_time``：否则两天前抓到的「上架 1 小时」
+    商品今天看会变成「上架 2 天」，评分会随查看时间漂移。
+    """
+    images = [str(url) for url in (product.get("商品图片列表") or []) if str(url).strip()]
+    main_image = str(product.get("商品主图链接") or "")
+    if main_image and main_image not in images:
+        images.insert(0, main_image)
+
+    title = str(row["title"] or "")
+    description = str(product.get("商品描述") or "")
+    # 目标配置优先取任务名（「OPPO Find X9 Pro 16+512」这类命名已经写了配置），
+    # 没写就当没指定，返回 None 让版本核验保持「不可判」而不是判错。
+    target_config = str(getattr(task, "task_name", "") or "") if task else ""
+
+    return OfferFacts(
+        listing_id=str(row["item_id"] or ""),
+        price=price,
+        market_median=insight.get("market_median_price"),
+        market_scope=str(insight.get("market_scope") or ""),
+        market_samples=int(insight.get("market_sample_count") or 0),
+        published_at=parse_publish_time(row["publish_time"]),
+        reference_at=_parse_dt(row["crawl_time"]),
+        image_count=len(images),
+        title=title,
+        description=description,
+        tags=tuple(str(tag) for tag in (product.get("商品标签") or []) if str(tag).strip()),
+        seller_credit=str(seller.get("卖家芝麻信用") or ""),
+        seller_level=str(seller.get("卖家信用等级") or ""),
+        sold_count=count_sold(seller.get("卖家发布的商品列表")),
+        registered_months=registered_months(seller.get("卖家注册时长")),
+        # 全新价锚点由人在任务设置里填。留空 → 性价比分不可判（不是 0 分）。
+        new_price_anchor=getattr(task, "new_price_anchor", None) if task else None,
+        new_price_note=str(getattr(task, "new_price_note", "") or "") if task else "",
+        storage_matches=storage_matches(title, description, target_config),
+        # 「已售」不是评论区数据，result_items.status 有，可以真判。
+        # 用 .get 而不是下标：候选行可能来自测试构造的 dict 或旧查询，
+        # 缺这一列时应当退化成「未售」，不该让整条评分炸掉。
+        sold_out=_row_get(row, "status") == "expired",
+    )
+
+
+def _row_get(row: Any, key: str, default: Any = None) -> Any:
+    """兼容 sqlite3.Row 与普通 dict 的取值。
+
+    sqlite3.Row 没有 .get，dict 可以下标但缺 key 会抛错，两者行为相反，
+    所以这里统一成一个入口——评分是纯展示链路，任何一列缺失都不该 500。
+    """
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
 
 
 def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
@@ -412,7 +550,53 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         insight=insight,
         verdict=verdict,
         gates=gates,
+        specs=specs,
     )
+
+    # 绝对分模型：100 分制 + 独立否决。与上面的 ai_score 是两把尺子，
+    # 前者不看 AI、阈值可解释，后者是相对质量分，两者都保留。
+    #
+    # 底层硬门槛（矿卡/故障/维修史）必须并进否决列表：它们判定的是「能不能买」，
+    # 而绝对分只衡量「这台机器的成色与价格值多少分」。不合并的话，一张矿卡能靠
+    # 低价+高信用凑到 85 分以上显示「直接冲」，和引擎的强制不匹配结论自相矛盾。
+    offer = score_offer(
+        _offer_facts(
+            row=row,
+            product=product,
+            seller=seller,
+            insight=insight,
+            price=price_value,
+            task=task,
+        ),
+        hard_blocks=tuple(
+            {
+                "key": hit.key,
+                "label": hit.label,
+                "detail": hit.detail,
+                "source": "hard_gate",
+            }
+            for hit in gates.blocks
+        ),
+    )
+    # 评级是「买不买」的结论，不能和引擎的 verdict 打架。
+    #
+    # 实测案例：一条「RX580 4G，闲置，功能完好」被 AI 判为 mismatch（矿卡重灾区），
+    # 但它的硬门槛只命中了 WARN 级的「物流未知」，于是绝对分算出 83 分「直接冲」——
+    # 同一张卡上，一处说不匹配、一处说直接冲。绝对分只衡量「成色与价格值多少分」，
+    # 它没有能力判断矿卡风险（那需要 AI 或硬门槛），所以最终结论必须听 verdict。
+    # 分数保留原值，只是把 grade 压下来，这样仍能看出「这卡其实不错，可惜不能买」。
+    if verdict == "mismatch" and not offer["vetoed"]:
+        offer["grade"] = "skip"
+        offer["grade_label"] = "跳过"
+        offer["grade_note"] = (
+            "底层判定为不匹配（矿卡/故障/型号不符等），分数只反映成色与价格，不代表可以买"
+        )
+        offer["demoted_by"] = "verdict"
+    elif verdict == "verify" and offer["grade"] == "buy":
+        offer["grade"] = "negotiate"
+        offer["grade_label"] = "可谈"
+        offer["grade_note"] = "仍需核实关键信息，先谈验机再下手"
+        offer["demoted_by"] = "verdict"
 
     review_status = str(row["review_status"] or "unseen")
     if review_status not in REVIEW_LABELS:
@@ -450,9 +634,17 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         }
     market_block["scope"] = market_scope
     market_block["comparable"] = comparable
+    # 价格标签被故障判定覆盖时，把原因一起带出去，避免只剩一个没头没尾的负标签。
+    # 这里现场复核一次而不是只读 insight：历史结果里的 deal_label 是入库时算的，
+    # 当时故障词表还认不出「自动断联」，不能让它继续给坏机器背书。
+    market_block["label"], market_block["note"] = _apply_defect_guard(
+        market_block.get("label"),
+        title=f"{row['title'] or ''} {product.get('商品描述') or ''}",
+        description="",
+    )
     task_id = getattr(task, "id", None)
     task_name = getattr(task, "task_name", None) or _normalize_task_name(row["task_name"])
-    return {
+    candidate = {
         "id": int(row["id"]),
         "item_id": str(row["item_id"] or ""),
         "title": _strip_text(row["title"], 160),
@@ -494,7 +686,8 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         "risk_tags": risk_tags,
         "missing_checks": _missing_checks(analysis, criteria, risk_tags),
         "criteria": criteria,
-        "recommended": analysis.get("is_recommended") is True and not gates.blocked,
+        "offer": offer,
+        "recommended": analysis.get("is_recommended") is True and not gates.blocked and not offer["vetoed"],
         "analysis_source": analysis_source,
         "ai_failed": verdict == "failed",
         "hard_blocked": gates.blocked,
@@ -503,9 +696,14 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
             "model": specs.model_family,
             "vram_gb": specs.vram_gb,
             "card_class": specs.card_class,
+            "is_real_gpu": specs.is_real_gpu,
+            "perf": _perf_payload(specs),
         },
         "market": market_block,
     }
+    # 配色偏好落到「是否推荐」上（AI 不执行 prompt 里的规则，只能由程序兜底）
+    candidate["recommended"] = _apply_color_gate(candidate)
+    return candidate
 
 
 def _matches_search(candidate: dict[str, Any], query: str) -> bool:
@@ -532,6 +730,195 @@ def _timestamp(value: Any) -> float:
         return 0.0
 
 
+# --- 配色偏好 ---
+# X9s Pro 的橙色（元气橙/活力橙）是买家的首选配色，但它在二手市场只占约 3%，
+# 按纯 ai_score 排序时经常被大量其他配色的商品压到后面。这里只在**排序键**上
+# 让橙色靠前，不改 ai_score 本身 —— 分数反映机器质量，配色反映用户偏好，
+# 两者不能混成一个数字。
+#
+# 只认官方配色名，不认孤单的「橙色」：闲鱼卖家常写「自定义垃圾橙色」，
+# 那是描述成色的黑话（把成色定得保守），不代表机器是橙色的。
+ORANGE_COLOR_TOKENS = ("元气橙", "活力橙", "橘色")
+OTHER_COLOR_TOKENS = (
+    "乘风青", "原生钛", "自在白", "钛色", "白色", "青色", "黑色", "银色",
+    "青色版", "白色版",
+)
+# 兜底：标题里「橙色」前后没有这些修饰词时才算真配色。
+# 「橙色如图基本全新」「橙色以图片为准」都是描述**成色**的话术，
+# 真实案例：「OPPO FIND X9 pro 国行16+512，全原无拆修，橙色如图基本全新」——
+# 这台是普通配色，只是卖家把成色称为「橙色」。这类写法必须一起排除。
+_ORANGE_CONTEXT_BLACKLIST = (
+    "垃圾", "自定义", "成色", "九成", "八成", "95新", "99新",
+    "如图", "见图", "看图", "以图", "图为准", "实拍", "基本", "还算", "一般",
+)
+# 「橙色」若紧跟在这些词后面，说明是在描述成色而非配色
+_ORANGE_SUFFIX_DESC = ("如图", "以图", "看图", "见")
+
+
+def detect_color(title: object) -> str:
+    """从标题识别配色，返回 'orange' / 'other' / 'unknown'。
+
+    优先级：明确的官方其他配色名 > 橙色 -> 避免「自在白 + 垃圾橙色描述」被误判成橙色。
+    """
+    text = str(title or "")
+    if not text:
+        return "unknown"
+
+    # 先判其他配色：卖家明确写了「自在白」就是白色，后面再怎么描述成色都不改判
+    for token in OTHER_COLOR_TOKENS:
+        if token in text:
+            return "other"
+
+    for token in ORANGE_COLOR_TOKENS:
+        if token in text:
+            return "orange"
+
+    # 孤单的「橙色」需要排除成色黑话
+    if "橙色" in text:
+        idx = text.find("橙色")
+        window = text[max(0, idx - 6): idx]
+        after = text[idx + 2: idx + 6]
+        # 前后都不能是成色话术：「垃圾橙色」「橙色如图」「橙色以图片为准」
+        if not any(bad in window for bad in _ORANGE_CONTEXT_BLACKLIST) and not any(
+            bad in after for bad in _ORANGE_SUFFIX_DESC
+        ):
+            return "orange"
+
+    # 英文写法单独判（成色黑话不会用英文）
+    if "orange" in text.lower():
+        return "orange"
+
+    return "unknown"
+
+
+# 非橙色配色的推荐门槛。
+#
+# 买家的原话是「其他版本暂时不用特别关注，除非评分很高」。这里必须落到
+# 程序里，不能只写在 prompt 里 —— 实测 AI 完全无视了 prompt 中的配色规则：
+# 30 条推荐里 28 条是非橙色，reason 里连 `【非橙色】` 标记都没有。
+#
+# 门槛取值依据（实测 60 个候选的分数分布）：
+#   最高 83 / 中位 78 / 大量 78，也就是说 **85 分根本达不到**。
+#   上一版把门槛设成 85，等于这条规则从未生效。
+#   现取 82：只有明显优于中位（78）的非橙色机器才放行。
+OTHER_COLOR_MIN_SCORE = 82
+
+
+def _is_gpu_candidate(candidate: dict[str, Any]) -> bool:
+    """这条候选是不是显卡。配色偏好是手机专属逻辑，对显卡纯属噪音。"""
+    specs = candidate.get("specs") or {}
+    if specs.get("model"):
+        return True
+    return looks_like_gpu_task(
+        candidate.get("keyword") or "", candidate.get("task_name") or ""
+    )
+
+
+def _apply_color_gate(candidate: dict[str, Any]) -> bool:
+    """非橙色且分数不够高的，撤销推荐。返回最终 recommended。
+
+    配色偏好只调「是否推荐」，不动 ai_score —— 分数是机器质量的度量，
+    不能因为颜色而篡改。橙色商品不受此限。
+
+    显卡任务直接跳过：显卡没有「元气橙」这种官方配色，标题里的「橙色还行」
+    「垃圾橙色」全是描述成色的黑话。实测 RX570 的「橙色还行」被判成橙色，
+    结果 54 分的卡被顶到 68 分的 GTX1060 前面，排序彻底失效。
+    """
+    recommended = bool(candidate.get("recommended"))
+    if not recommended:
+        return False
+    if _is_gpu_candidate(candidate):
+        return True
+    if detect_color(candidate.get("title")) == "orange":
+        return True
+    score = candidate.get("ai_score")
+    # 没有分数时无法评估质量，保守放行（否则新抓未分析的会被一律压掉）
+    if score is None:
+        return True
+    return score >= OTHER_COLOR_MIN_SCORE
+
+
+def _color_priority(candidate: dict[str, Any]) -> int:
+    """排序用：橙色 0（最前），配色未知 1，其他配色 2。
+
+    显卡一律返回 1（中性），让排序完全交给分数——
+    显卡的配色偏好没有意义，不能让它压过 ai_score 的差异。
+    """
+    if _is_gpu_candidate(candidate):
+        return 1
+    color = detect_color(candidate.get("title"))
+    if color == "orange":
+        return 0
+    return 1 if color == "unknown" else 2
+
+
+_GRADE_RANK = {"buy": 0, "negotiate": 1, "watch": 2, "skip": 3}
+
+
+def _smart_sort_key(item: dict[str, Any]) -> tuple:
+    """默认排序键。
+
+    顺序有讲究：**先否决、再评级、再配色、最后才比分数**。
+
+    - 一票否决的商品必须沉底，不管它价格多低；
+    - 评级（直接冲 > 可谈 > 观望）优先于配色：非首选的橙色好货
+      不该压过一台 80 分以上的「直接冲」；
+    - 配色只在同评级内做区分，这是买家偏好，不能提级；
+    - ``ai_score`` 只作为同分时的细排，避免它重新主导排序。
+    """
+    offer = item.get("offer") or {}
+    total = offer.get("total")
+    return (
+        1 if offer.get("vetoed") else 0,
+        _GRADE_RANK.get(str(offer.get("grade") or ""), 4),
+        _color_priority(item),
+        total is None,
+        -(total or 0),
+        item.get("ai_score") is None,
+        -(item.get("ai_score") or 0),
+        AI_PRIORITY.get(item["ai_verdict"], 4),
+        -_timestamp(item.get("crawl_time")),
+    )
+
+
+def _within_listing_window(row: Any, task: Any | None) -> bool:
+    """按任务配置的上架时效门槛过滤工作台候选。
+
+    抓取侧已经有同一道门槛（``scraper`` 里的 ``publish_filter``），
+    但门槛上线前入库的历史记录不会自己消失——实测 60 条超 3 天的老卡，
+    分数排序还会把它们顶到前面。这里用同一份配置再挡一次，保证界面上
+    「只看得到新鲜货」，且与抓取行为一致。
+
+    时间基准取该记录自己的 ``crawl_time`` 而非 now()：否则两天前抓到的
+    「上架 1 小时」商品，今天看会变成「上架 2 天」，判定随查看时间漂移。
+    """
+    publish_filter = build_publish_time_filter(getattr(task, "new_publish_option", None))
+    if publish_filter.is_empty:
+        return True
+    reference = _parse_dt(row["crawl_time"]) or datetime.now()
+    keep, _ = publish_filter.check(row["publish_time"], now=reference)
+    return keep
+
+
+def _within_visible_window(row: Any, visible_days: int) -> bool:
+    """工作台默认的「只看最近几天上架」门槛。
+
+    与 ``_within_listing_window`` 刻意不同：这里的基准必须是 **now()**。
+    任务配置那道门槛要跟抓取行为对齐，所以用 crawl_time；而这一道回答的是
+    「这件东西现在还有没有必要看」——一条 10 天前上架、今天又被抓到的老链接，
+    抓取时间是新的，但它早就该被买走了，必须继续藏着。
+
+    发布时间缺失时不丢弃：这里只是"减少噪音"，不是"质量判定"，
+    没有理由因为卖家没写时间就把新货藏掉。
+    """
+    if visible_days <= 0:
+        return True
+    published = parse_publish_time(row["publish_time"])
+    if published is None:
+        return True
+    return (_now() - published) <= timedelta(days=visible_days)
+
+
 def list_candidates(
     tasks: Iterable[Any],
     *,
@@ -542,17 +929,31 @@ def list_candidates(
     sort: str = "smart",
     page: int = 1,
     limit: int = 12,
+    visible_days: int | None = None,
 ) -> dict[str, Any]:
+    """工作台候选列表。
+
+    ``visible_days`` 是展示层的新鲜度窗口（默认 5 天，0 = 看全部历史）。
+    只影响「往外看什么」，数据库里一条都不删——后台统计、同型号比价样本、
+    导出 CSV 都还要用到全量历史。
+    """
+    days = DEFAULT_VISIBLE_DAYS if visible_days is None else int(visible_days)
     tasks = list(tasks)
     by_filename, by_name = _task_lookup(tasks)
     rows = _dedupe_rows(_load_candidate_rows(tasks))
     candidates: list[dict[str, Any]] = []
+    hidden_stale = 0
     for row in rows:
         task = _resolve_task_for_row(row, by_filename, by_name)
         candidate = _decorate_candidate(row, task)
         if task_id is not None and candidate.get("task_id") != task_id:
             continue
         if not _matches_search(candidate, query.strip()):
+            continue
+        if not _within_listing_window(row, task):
+            continue
+        if not _within_visible_window(row, days):
+            hidden_stale += 1
             continue
         candidates.append(candidate)
 
@@ -587,23 +988,9 @@ def list_candidates(
     elif sort == "newest":
         filtered.sort(key=lambda item: item.get("crawl_time") or "", reverse=True)
     elif sort == "score":
-        filtered.sort(
-            key=lambda item: (
-                item.get("ai_score") is None,
-                -(item.get("ai_score") or 0),
-                AI_PRIORITY.get(item["ai_verdict"], 4),
-                -_timestamp(item.get("crawl_time")),
-            )
-        )
+        filtered.sort(key=_smart_sort_key)
     else:
-        filtered.sort(
-            key=lambda item: (
-                item.get("ai_score") is None,
-                -(item.get("ai_score") or 0),
-                AI_PRIORITY.get(item["ai_verdict"], 4),
-                -_timestamp(item.get("crawl_time")),
-            )
-        )
+        filtered.sort(key=_smart_sort_key)
 
     total = len(filtered)
     start = max(0, (page - 1) * limit)
@@ -618,6 +1005,9 @@ def list_candidates(
         "task_counts": task_counts,
         "review_labels": REVIEW_LABELS,
         "ai_labels": AI_LABELS,
+        # 界面要能说清「为什么少了」：被新鲜度窗口挡掉的条数 + 当前窗口天数
+        "visible_days": days,
+        "hidden_stale_count": hidden_stale,
     }
 
 
@@ -865,6 +1255,10 @@ def list_task_workbench(tasks: Iterable[Any], scheduler: Any) -> dict[str, Any]:
                 "description": _strip_text(task.description, 400),
                 "title_include_keywords": task.title_include_keywords,
                 "title_exclude_keywords": task.title_exclude_keywords,
+                # 全新价锚点（人工维护）。为 None 时前端要明确提示「未配置」，
+                # 而不是把性价比分当 0 分看——两者含义完全不同。
+                "new_price_anchor": task.new_price_anchor,
+                "new_price_note": task.new_price_note,
             }
         )
     items.sort(key=lambda item: (item["status"] != "running", item["id"] or 0))

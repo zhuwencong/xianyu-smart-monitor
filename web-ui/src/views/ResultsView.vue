@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ChevronDown,
   ClipboardList,
+  Clock3,
   Loader2,
   Plus,
   ScanLine,
@@ -48,6 +49,11 @@ const taskFilter = ref('all')
 const sortBy = ref<'score' | 'newest' | 'price_asc' | 'price_desc'>('score')
 const searchText = ref('')
 const appliedSearch = ref('')
+// 只看最近几天上架的。真正有性价比的机器挂出去几小时就被拍走，
+// 一条上架一周还没成交的记录摆在前台只是噪音——默认 5 天，0 = 看全部历史
+// （历史记录不删，后台统计、比价样本、导出都还要用）。
+const visibleDays = ref(5)
+const hiddenStaleCount = ref(0)
 const selected = ref<Candidate | null>(null)
 const isDetailOpen = ref(false)
 const updatingItemId = ref('')
@@ -72,6 +78,18 @@ const aiOptions = computed(() => [
 
 const hasMore = computed(() => items.value.length < total.value)
 const activeTask = computed(() => tasks.value.find((task) => String(task.id) === taskFilter.value) || null)
+const daysOptions = [
+  { value: 1, label: '近 1 天' },
+  { value: 3, label: '近 3 天' },
+  { value: 5, label: '近 5 天' },
+  { value: 7, label: '近 7 天' },
+  { value: 0, label: '全部历史' },
+]
+const staleHint = computed(() => {
+  if (visibleDays.value === 0) return ''
+  if (!hiddenStaleCount.value) return ''
+  return `已隐藏 ${hiddenStaleCount.value} 条上架超过 ${visibleDays.value} 天的记录（数据仍在后台）`
+})
 const accountAlerts = computed(() =>
   (summary.value?.accounts || []).filter((account) => account.status === 'needs_update')
 )
@@ -89,7 +107,16 @@ const selectedTaskCount = computed(() => {
 })
 
 const showFirstRun = computed(() => !isLoading.value && tasksLoaded.value && tasks.value.length === 0)
-const hasFilters = computed(() => reviewTab.value !== 'unseen' || aiFilter.value !== 'all' || taskFilter.value !== 'all' || appliedSearch.value)
+// 自动聚焦的任务不算"用户设置的筛选"，否则一进页面就顶着"清除筛选"很莫名其妙。
+const autoTaskId = ref<string | null>(null)
+const hasFilters = computed(
+  () =>
+    reviewTab.value !== 'unseen' ||
+    aiFilter.value !== 'all' ||
+    (taskFilter.value !== 'all' && taskFilter.value !== autoTaskId.value) ||
+    visibleDays.value !== 5 ||
+    appliedSearch.value
+)
 
 function readAiFromRoute() {
   const ai = typeof route.query.ai === 'string' ? route.query.ai : ''
@@ -113,6 +140,23 @@ async function fetchTasks() {
   }
 }
 
+/**
+ * 首次进入且 URL 没指定任务时，默认聚焦到"当前唯一启用的任务"。
+ *
+ * 为什么要这么绕：停用任务的历史记录不会消失，若默认落在「全部任务」，
+ * 已停用三个月的手机记录会因为分数高排在显卡记录前面（实测 940 条 vs 167 条）。
+ * 只在"恰好一个任务启用"时自动聚焦——多任务同时跑的时候强行选一个反而添乱。
+ */
+function applyDefaultTaskFilter() {
+  if (typeof route.query.task === 'string') return
+  if (taskFilter.value !== 'all') return
+  const enabledTasks = tasks.value.filter((task) => task.enabled)
+  const onlyTask = enabledTasks.length === 1 ? enabledTasks[0] : undefined
+  if (!onlyTask) return
+  taskFilter.value = String(onlyTask.id)
+  autoTaskId.value = taskFilter.value
+}
+
 async function loadCandidates(reset = true) {
   if (reset) {
     page.value = 1
@@ -131,11 +175,13 @@ async function loadCandidates(reset = true) {
       sort: sortBy.value,
       page: page.value,
       limit: 12,
+      days: visibleDays.value,
     })
     if (token !== loadToken) return
     counts.value = data.counts
     aiCounts.value = data.ai_counts
     total.value = data.total
+    hiddenStaleCount.value = data.hidden_stale_count ?? 0
     items.value = reset ? data.items : [...items.value, ...data.items]
   } catch (e) {
     if (token !== loadToken) return
@@ -170,6 +216,11 @@ function changeSort(value: string) {
   loadCandidates(true)
 }
 
+function changeVisibleDays(value: string) {
+  visibleDays.value = Number(value)
+  loadCandidates(true)
+}
+
 function clearSearch() {
   searchText.value = ''
   appliedSearch.value = ''
@@ -180,6 +231,8 @@ function clearFilters() {
   reviewTab.value = 'unseen'
   aiFilter.value = 'all'
   taskFilter.value = 'all'
+  autoTaskId.value = null
+  visibleDays.value = 5
   searchText.value = ''
   appliedSearch.value = ''
   loadCandidates(true)
@@ -290,9 +343,13 @@ on('results_updated', () => {
   refreshSummary()
 })
 
-onMounted(() => {
+onMounted(async () => {
   readAiFromRoute()
-  fetchTasks()
+  // 必须先拿到任务列表再决定默认筛选：曾经这里是 fetchTasks() 与 loadCandidates()
+  // 并行跑，导致「全部任务」把已停用任务的历史记录一起捞进来（940 条里只有 167 条
+  // 是当前在跑的任务），真正新鲜的结果会被老数据挤到后面。
+  await fetchTasks()
+  applyDefaultTaskFilter()
   loadCandidates(true)
   refreshSummary()
 })
@@ -471,6 +528,21 @@ onBeforeUnmount(() => {
         <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8291A8]" />
       </div>
 
+      <div class="relative min-w-[118px]">
+        <select
+          :value="visibleDays"
+          class="h-9 w-full appearance-none rounded-lg border border-[#DCE4F0] bg-white pl-3 pr-7 text-[12.5px] font-bold text-[#40526C] outline-none transition-colors hover:border-[#B9C9E2] focus:border-[#2360E6]"
+          aria-label="上架时效"
+          title="默认只看近 5 天上架的：真正划算的早在几小时内被拍走了"
+          @change="changeVisibleDays(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="option in daysOptions" :key="option.value" :value="option.value">
+            {{ option.label }}上架
+          </option>
+        </select>
+        <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8291A8]" />
+      </div>
+
       <div class="relative ml-auto w-full sm:w-[210px]">
         <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#93A1B5]" />
         <input
@@ -490,6 +562,19 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+
+    <p v-if="staleHint" class="-mt-2 mb-4 flex items-center gap-1.5 px-1 text-[11.5px] text-[#8492A6]">
+      <Clock3 class="h-3.5 w-3.5 shrink-0 text-[#A0ADBE]" />
+      {{ staleHint }}
+      <button
+        v-if="visibleDays !== 0"
+        type="button"
+        class="ml-1 font-bold text-[#2360E6] hover:text-[#1748B8]"
+        @click="changeVisibleDays('0')"
+      >
+        查看全部
+      </button>
+    </p>
 
     <div v-if="isLoading" class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3" aria-busy="true">
       <div v-for="index in 6" :key="index" class="overflow-hidden rounded-[14px] border border-[#E7ECF5] bg-white">
@@ -537,14 +622,24 @@ onBeforeUnmount(() => {
           ? '换一个筛选条件，或清空搜索后再看看。'
           : `监控任务会按计划继续检查${activeTask ? `「${activeTask.task_name}」` : ''}，下一轮发现后会出现在这里。` }}
       </p>
-      <button
-        v-if="hasFilters"
-        type="button"
-        class="mt-5 inline-flex h-9 items-center rounded-lg border border-[#DCE4F0] bg-white px-4 text-[12px] font-bold text-[#40526C] hover:border-[#B9C9E2]"
-        @click="clearFilters"
-      >
-        清空筛选
-      </button>
+      <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
+        <button
+          v-if="hasFilters"
+          type="button"
+          class="inline-flex h-9 items-center rounded-lg border border-[#DCE4F0] bg-white px-4 text-[12px] font-bold text-[#40526C] hover:border-[#B9C9E2]"
+          @click="clearFilters"
+        >
+          清空筛选
+        </button>
+        <button
+          v-if="visibleDays !== 0"
+          type="button"
+          class="inline-flex h-9 items-center rounded-lg border border-[#DCE4F0] bg-white px-4 text-[12px] font-bold text-[#40526C] hover:border-[#B9C9E2]"
+          @click="changeVisibleDays('0')"
+        >
+          查看全部历史
+        </button>
+      </div>
     </div>
 
     <template v-else>
@@ -565,6 +660,7 @@ onBeforeUnmount(() => {
           已显示 <b class="text-[#40526C]">{{ items.length }}</b> / {{ total }} 条
           <span v-if="activeTask" class="ml-1">· {{ activeTask.task_name }}</span>
           <span v-else-if="selectedTaskCount">· 全部任务</span>
+          <span v-if="visibleDays !== 0" class="ml-1">· 近 {{ visibleDays }} 天上架</span>
         </p>
         <button
           v-if="hasMore"

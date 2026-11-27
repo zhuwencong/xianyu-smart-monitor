@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import {
+  Ban,
   Bookmark,
   Check,
   CircleHelp,
@@ -13,6 +14,7 @@ import {
   XCircle,
 } from 'lucide-vue-next'
 import type { Candidate } from '@/api/workbench'
+import OfferScorePanel from './OfferScorePanel.vue'
 
 const props = defineProps<{ candidate: Candidate }>()
 const emit = defineEmits<{
@@ -24,7 +26,31 @@ const emit = defineEmits<{
 
 const imageFailed = ref(false)
 
+// 徽标必须与下方的绝对分评级同源，否则会出现「右上角写建议关注、
+// 底下红条写别买」的自相矛盾。否决 > 评级 > AI 判断，按这个优先级取。
 const tone = computed(() => {
+  const offer = props.candidate.offer
+  if (offer?.vetoed) {
+    return {
+      badge: 'border-[#F1C9C4] bg-[#FDEDEB] text-[#A32D2D]',
+      icon: Ban,
+      label: '一票否决',
+    }
+  }
+  if (offer?.grade === 'buy') {
+    return {
+      badge: 'border-[#A9E2CB] bg-[#E8F8F1] text-[#0C7A56]',
+      icon: Sparkles,
+      label: '直接冲',
+    }
+  }
+  if (offer?.grade === 'skip') {
+    return {
+      badge: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#64748B]',
+      icon: XCircle,
+      label: '跳过',
+    }
+  }
   switch (props.candidate.ai_verdict) {
     case 'recommend':
       return {
@@ -56,7 +82,15 @@ const tone = computed(() => {
 const isFavorite = computed(() => props.candidate.review_status === 'favorite')
 const isHandled = computed(() => props.candidate.review_status === 'handled')
 const evidence = computed(() => props.candidate.ai_summary || 'AI 尚未给出完整判断。')
-const missing = computed(() => props.candidate.missing_checks.join('、'))
+// 优先用绝对分模型算出的缺项：它是按「哪些分没能拿到」推出来的，
+// 比 AI 自述的 missing_checks 更贴近实际扣分原因，且能直接生成问卖家的话术。
+const missing = computed(() =>
+  (props.candidate.offer?.missing_labels?.length
+    ? props.candidate.offer.missing_labels
+    : props.candidate.missing_checks
+  ).join('、')
+)
+const isDefectLabel = computed(() => (props.candidate.market?.label || '').startsWith('故障机'))
 const scoreTone = computed(() => {
   const score = props.candidate.ai_score ?? 0
   if (score >= 75) return 'text-[#1E5BD8]'
@@ -145,13 +179,20 @@ function openDetail() {
 
       <div class="mt-2 flex items-baseline gap-2">
         <span class="text-[27px] font-black leading-none tracking-tight text-[#E03838]">{{ candidate.price_display }}</span>
-        <span v-if="candidate.market.label" class="ml-auto text-[10.5px] font-medium text-[#8B9AB0]">
+        <span
+          v-if="candidate.market.label"
+          class="ml-auto text-[10.5px] font-medium"
+          :class="isDefectLabel ? 'rounded bg-[#FCEBEB] px-1.5 py-0.5 font-bold text-[#A32D2D]' : 'text-[#8B9AB0]'"
+          :title="candidate.market.note || ''"
+        >
           {{ candidate.market.label }}
         </span>
       </div>
 
+      <OfferScorePanel v-if="candidate.offer" :offer="candidate.offer" class="mt-2.5" />
+
       <div
-        v-if="candidate.ai_score !== null && candidate.score_breakdown?.length"
+        v-else-if="candidate.ai_score !== null && candidate.score_breakdown?.length"
         class="mt-2.5 flex items-center gap-3 rounded-lg border border-[#E1EAF8] bg-[#F7FAFF] px-2.5 py-2"
       >
         <div class="flex w-[54px] shrink-0 flex-col items-center">
@@ -194,7 +235,12 @@ function openDetail() {
       <div class="mt-auto flex flex-wrap items-center gap-2 pt-3">
         <div class="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-[#94A2B8]">
           <Clock3 class="h-3 w-3 shrink-0" />
-          <span class="truncate">闲鱼 · {{ candidate.crawl_label }} 发现</span>
+          <!-- 上架时间比「什么时候抓到的」更有用：老链接会被反复抓到，
+               抓取时间永远是新的，只有上架时间能判断这货还值不值得看。 -->
+          <span class="truncate">
+            <template v-if="candidate.publish_label">上架 {{ candidate.publish_label }}</template>
+            <template v-else>{{ candidate.crawl_label }} 发现</template>
+          </span>
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
           <button

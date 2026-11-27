@@ -43,6 +43,7 @@ async def get_candidates(
     sort: str = Query("smart"),
     page: int = Query(1, ge=1),
     limit: int = Query(12, ge=1, le=60),
+    days: int = Query(5, ge=0, le=365),
     task_service: TaskService = Depends(get_task_service),
 ):
     if review_status not in {"all", "unseen", "favorite", "handled"}:
@@ -60,6 +61,7 @@ async def get_candidates(
         sort=sort,
         page=page,
         limit=limit,
+        visible_days=days,
     )
 
 

@@ -118,3 +118,139 @@ def test_unknown_number_is_not_a_model_even_with_gpu_hint():
 def test_bare_number_followed_by_price_word_is_ignored():
     specs = extract_specs("闲置显卡，580元出，包邮", gpu_hint=True)
     assert specs.model_family == ""
+
+
+# --- 非显卡品类（路由器等）的功能故障识别 ---
+# 背景：故障词表原先是显卡专用的，路由器「自动断联」识别不到，
+# 导致一台明确故障的机器拿到 81 分 deal_score +「高性价比」标签。
+
+def test_router_auto_disconnect_detected_as_defect():
+    """路由器「自动断联」必须识别为功能故障。"""
+    specs = extract_specs(
+        "小米路由器BE3600 2.5G版，WiFi7，四天线，3600M速率，2.5G网口。"
+        "有拆卸痕迹，不影响使用。绑定米家几分钟后自动断联。"
+        "无线mesh组网几十分钟后自动断联。其他功能正常。包邮。"
+    )
+    assert "自动断联" in specs.defects
+    assert "拆卸痕迹" in specs.defects
+    assert specs.has_blocking_defect is True
+
+
+def test_normal_router_not_flagged_as_defect():
+    """正常路由器不能被误伤。"""
+    for text in (
+        "小米AX3000T，WiFi6，四天线，功能正常，没拆没修，插电即用，带原装电源，包邮。",
+        "出准新小米路由器BE3600 2.5G版，WiFi7，信号强穿墙好，支持mesh组网，功能正常。",
+        # 「定时重启」是功能而非故障
+        "小米AX3000T，支持定时重启功能，米家App管理，夜间自动重启不打扰。",
+        # 「移动联通电信都能用」不是锁网
+        "路由器支持Mesh组网，移动联通电信都能用，信号覆盖全屋。",
+    ):
+        assert extract_specs(text).defects == (), f"误判为故障: {text}"
+
+
+# --- 故障机的价格标签必须被覆盖 ---
+
+def test_defect_guard_blocks_bargain_label():
+    """明确故障的机器，价格标签不能是「高性价比」。"""
+    from src.services.price_history_service import _apply_defect_guard
+
+    label, note = _apply_defect_guard(
+        "高性价比",
+        title="小米路由器BE3600 2.5G版 WiFi7",
+        description="有拆卸痕迹。绑定米家几分钟后自动断联。其他功能正常。包邮。",
+    )
+
+    assert label == "故障机·勿买"
+    assert "不建议购买" in note
+    assert "自动断联" in note
+
+
+def test_defect_guard_keeps_label_for_healthy_item():
+    """健康商品的标签原样保留。"""
+    from src.services.price_history_service import _apply_defect_guard
+
+    label, note = _apply_defect_guard(
+        "高性价比",
+        title="小米AX3000T WiFi6",
+        description="功能正常，没拆没修，插电即用，包邮。",
+    )
+
+    assert label == "高性价比"
+    assert note == ""
+
+
+# --- 故障机的价格分必须一起压下来 ---
+# 只覆盖标签是不够的：分数会进 CSV 导出，任何按分数浏览的路径
+# 都可能让一台坏机器凭 81 分冲上榜首。
+
+def _build_defect_price_context():
+    """构造一台「比市场便宜但明确故障」的机器，返回其 price_context。"""
+    from src.services.price_history_service import build_item_price_context
+
+    defective_title = (
+        "小米路由器BE3600 2.5G版，WiFi7，四天线，3600M速率，2.5G网口。"
+        "有拆卸痕迹，不影响使用。绑定米家几分钟后自动断联。其他功能正常。包邮。"
+    )
+    # 3 台健康同型号机器挂 300，这台只卖 85 —— 纯价格算必然是高分。
+    market = [
+        {"item_id": "a", "title": "小米路由器BE3600 2.5G版 WiFi7", "price": 300, "run_id": "r1"},
+        {"item_id": "b", "title": "小米路由器BE3600 2.5G版 WiFi7", "price": 305, "run_id": "r1"},
+        {"item_id": "c", "title": "小米路由器BE3600 2.5G版 WiFi7", "price": 310, "run_id": "r1"},
+    ]
+    snapshots = market + [
+        {
+            "item_id": "bad",
+            "title": defective_title,
+            "description": "有拆卸痕迹。绑定米家几分钟后自动断联。其他功能正常。包邮。",
+            "price": 85,
+            "run_id": "r1",
+        }
+    ]
+    return build_item_price_context(
+        snapshots,
+        item_id="bad",
+        current_price=85,
+        market_snapshots=market,
+        title=defective_title,
+    )
+
+
+def test_defect_item_price_score_is_capped():
+    """故障机的 deal_score 必须被压到上限以内，不能凭低价拿高分。"""
+    from src.services.price_history_service import DEFECT_SCORE_CAP
+
+    context = _build_defect_price_context()
+
+    assert context["deal_label"] == "故障机·勿买"
+    assert context["deal_score"] <= DEFECT_SCORE_CAP, (
+        f"故障机 deal_score={context['deal_score']} 仍超过上限 {DEFECT_SCORE_CAP}"
+    )
+    assert "自动断联" in context["deal_defect_note"]
+
+
+def test_healthy_item_price_score_not_capped():
+    """同样便宜的机器，只要没故障，分数照常给高。"""
+    from src.services.price_history_service import DEFECT_SCORE_CAP, build_item_price_context
+
+    healthy_title = "小米路由器BE3600 2.5G版 WiFi7，功能正常，没拆没修，包邮。"
+    market = [
+        {"item_id": "a", "title": healthy_title, "price": 300, "run_id": "r1"},
+        {"item_id": "b", "title": healthy_title, "price": 305, "run_id": "r1"},
+        {"item_id": "c", "title": healthy_title, "price": 310, "run_id": "r1"},
+    ]
+    snapshots = market + [
+        {"item_id": "ok", "title": healthy_title, "description": "功能正常，没拆没修。",
+         "price": 85, "run_id": "r1"}
+    ]
+
+    context = build_item_price_context(
+        snapshots,
+        item_id="ok",
+        current_price=85,
+        market_snapshots=market,
+        title=healthy_title,
+    )
+
+    assert context["deal_defect_note"] == ""
+    assert context["deal_score"] > DEFECT_SCORE_CAP, "健康机器不应被故障上限误伤"

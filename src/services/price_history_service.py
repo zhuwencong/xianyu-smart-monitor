@@ -382,6 +382,33 @@ def _resolve_deal_label(score: int) -> str:
     return "价格偏高"
 
 
+# 价格分只看「比市场便宜多少」，天然看不见功能故障：
+# 一台断联的机器照样能算出 80+ 分。所以标签必须叠加故障判定，
+# 否则「高性价比」会变成「便宜但坏的」的背书。
+DEFECT_LABEL = "故障机·勿买"
+DEFECT_PRICE_NOTE = "存在明确功能故障，价格再低也不建议购买"
+# 故障机的价格分必须一起压下来。只改标签不改分数是不够的：
+# 数值仍会进 CSV 导出、仍可能被某个排序维度读到，坏机器照样能靠 81 分冲到榜首。
+DEFECT_SCORE_CAP = 20
+
+
+def _apply_defect_guard(
+    label: str,
+    *,
+    title: object,
+    description: object,
+) -> tuple[str, str]:
+    """有条件故障时覆盖价格标签，返回 (标签, 说明)。"""
+    try:
+        specs = extract_specs(title, description)
+    except Exception:  # pragma: no cover - 抽不到就当没故障，保持原逻辑
+        return label, ""
+    if not specs.defects:
+        return label, ""
+    detail = "、".join(specs.defects)
+    return DEFECT_LABEL, f"{DEFECT_PRICE_NOTE}（{detail}）"
+
+
 def build_item_price_context(
     snapshots: list[dict],
     *,
@@ -432,6 +459,15 @@ def build_item_price_context(
         change_percent = round(change_amount / previous_price * 100, 2)
 
     deal_label = "样本不足" if insufficient else _resolve_deal_label(score)
+    # 故障一票否决：不管价格多便宜，标签都不能说「高性价比」。
+    deal_label, defect_note = _apply_defect_guard(
+        deal_label,
+        title=title,
+        description=latest_item_snapshot.get("description"),
+    )
+    # 分数与标签同源：标签被判故障时，分数也不能留着高价性价比的数值。
+    if defect_note:
+        score = min(score, DEFECT_SCORE_CAP)
 
     return {
         "observation_count": len(historical_prices),
@@ -456,6 +492,7 @@ def build_item_price_context(
         "price_change_percent": change_percent,
         "deal_score": score,
         "deal_label": deal_label,
+        "deal_defect_note": defect_note,
     }
 
 

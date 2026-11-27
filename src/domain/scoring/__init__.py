@@ -27,11 +27,13 @@ from src.domain.scoring.gates import (
     evaluate_gates,
     task_allows_professional,
 )
+from src.domain.scoring.gpu_perf import GpuPerf, estimate_gpu_perf
 from src.domain.scoring.specs import ItemSpecs, extract_specs
 
 __all__ = [
     "AI_REFERENCE_WEIGHT",
     "BLOCK",
+    "GpuPerf",
     "HARD_BLOCK_SCORE_CAP",
     "MIN_CONSUMER_VRAM_GB",
     "WARN",
@@ -40,6 +42,7 @@ __all__ = [
     "ItemSpecs",
     "benchmark_price",
     "breakdown_payload",
+    "estimate_gpu_perf",
     "evaluate_gates",
     "extract_specs",
     "price_score",

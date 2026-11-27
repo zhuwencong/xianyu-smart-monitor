@@ -128,6 +128,26 @@ def evaluate_gates(
             )
         )
 
+    if specs.is_gpu and specs.accessory_signals:
+        hits.append(
+            GateHit(
+                key="accessory",
+                label="显卡配件",
+                detail="标题/描述表明这是配件而非显卡本体："
+                + "、".join(specs.accessory_signals),
+            )
+        )
+
+    if specs.is_gpu and specs.bulk_bundle:
+        hits.append(
+            GateHit(
+                key="bulk_bundle",
+                label="打包出售",
+                detail="多件打包出售，无法单独购买显卡本体",
+                severity=WARN,
+            )
+        )
+
     if specs.is_gpu and not allow_professional and specs.card_class == "professional":
         hits.append(
             GateHit(

@@ -45,6 +45,9 @@ SCHEMA_STATEMENTS = (
         keyword_rules_json TEXT NOT NULL,
         title_include_json TEXT NOT NULL DEFAULT '[]',
         title_exclude_json TEXT NOT NULL DEFAULT '[]',
+        -- 全新最低价锚点：人工维护，留空表示未配置（性价比分不可判）
+        new_price_anchor REAL,
+        new_price_note TEXT,
         is_running INTEGER NOT NULL
     )
     """,
@@ -176,7 +179,32 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _migrate_result_items_review_status(conn)
     _migrate_result_items_listing_checked_at(conn)
     _migrate_task_title_filters(conn)
+    _migrate_task_new_price_anchor(conn)
     conn.commit()
+
+
+def _migrate_task_new_price_anchor(conn: sqlite3.Connection) -> None:
+    """为 tasks 表添加「全新最低价」锚点列（仅执行一次）。
+
+    这两列是人在任务设置里手填的，不是抓来的——项目只抓闲鱼，
+    拿不到京东/淘宝的实时价，让 AI 猜一个全新价等于凭空造数。
+    所以缺省留空，缺空时性价比分整维不可判。
+    """
+    row = conn.execute(
+        "SELECT value FROM app_metadata WHERE key = 'migration:task_new_price_anchor'"
+    ).fetchone()
+    if row is not None:
+        return
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "new_price_anchor" not in cols:
+        # REAL 而不是 TEXT：它要参与除法运算，存成文本迟早要来回转
+        conn.execute("ALTER TABLE tasks ADD COLUMN new_price_anchor REAL")
+    if "new_price_note" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN new_price_note TEXT")
+    conn.execute(
+        "INSERT OR REPLACE INTO app_metadata(key, value)"
+        " VALUES ('migration:task_new_price_anchor', 'done')"
+    )
 
 
 def _migrate_result_items_listing_checked_at(conn: sqlite3.Connection) -> None:

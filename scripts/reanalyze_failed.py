@@ -30,6 +30,7 @@ import json
 import os
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
@@ -50,6 +51,7 @@ from src.services.item_analysis_dispatcher import (  # noqa: E402
     ItemAnalysisDispatcher,
     ItemAnalysisJob,
 )
+from src.services.publish_time_filter import describe_listing_age  # noqa: E402
 
 DB_PATH = BASE / "data" / "app.sqlite3"
 
@@ -82,7 +84,8 @@ def load_tasks() -> dict[str, dict]:
         """
         SELECT task_name, keyword, decision_mode, analyze_images,
                ai_prompt_base_file, ai_prompt_criteria_file,
-               min_price, max_price, free_shipping, keyword_rules_json
+               min_price, max_price, free_shipping, keyword_rules_json,
+               new_publish_option
         FROM tasks
         """
     ).fetchall()
@@ -185,6 +188,42 @@ def build_job(row: sqlite3.Row, record: dict, task: dict, prompt: str) -> ItemAn
         budget_max=task.get("max_price") or None,
         require_shipping=bool(task.get("free_shipping")),
     )
+
+
+def backfill_listing_age(record: dict, task: dict) -> bool:
+    """给历史记录补上「上架时长」字段。
+
+    爬虫侧现在会在抓取时算好这个字段，但改动前入库的老记录没有。
+    重分析时若缺这一项，AI 只能退回自己算日期——而 LLM 算不准
+    （实测把「11 分钟前发布」判成「超 3 天」）。这里按抓取时间补齐。
+    返回是否发生了写入。
+    """
+    item = record.get("商品信息")
+    if not isinstance(item, dict):
+        return False
+
+    option = str(task.get("new_publish_option") or "").strip()
+    if option in {"", "__none__", "最新"}:
+        return False
+    if item.get("上架时长"):
+        return False
+
+    published = item.get("发布时间")
+    if not published:
+        return False
+
+    # 用该商品的抓取时间做基准，而不是"现在"——
+    # 否则一周前抓的老卡会被算成"上架 7 天+7 天"，判断全歪。
+    crawl_raw = str(record.get("爬取时间") or "").strip()
+    reference = None
+    if crawl_raw:
+        try:
+            reference = datetime.fromisoformat(crawl_raw)
+        except ValueError:
+            reference = None
+
+    item["上架时长"] = describe_listing_age(published, now=reference)
+    return True
 
 
 async def analyze_one(
@@ -303,6 +342,10 @@ async def run(args) -> int:
             print(f"[{done}/{len(records)}] 跳过 #{row['id']} {task_name}：任务配置或 prompt 缺失")
             return
 
+        # 老记录没有「上架时长」字段，补上再喂给 AI，否则它会自己算错日期。
+        if backfill_listing_age(record, task):
+            stats["age_filled"] = stats.get("age_filled", 0) + 1
+
         async with semaphore:
             started = asyncio.get_event_loop().time()
             try:
@@ -327,6 +370,7 @@ async def run(args) -> int:
     print(
         f"\n完成: 成功 {stats['ok']}（推荐 {stats['recommend']}）/ "
         f"失败 {stats['fail']} / 跳过 {stats['skip']}"
+        f" / 回填上架时长 {stats.get('age_filled', 0)} 条"
     )
     return 0 if stats["fail"] == 0 else 1
 

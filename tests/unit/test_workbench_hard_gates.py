@@ -113,7 +113,8 @@ def test_professional_card_cannot_be_recommended(tmp_path, monkeypatch):
         ),
     )
 
-    result = list_candidates([TASK], review_status="all", limit=10)
+    # visible_days=0：本用例只验硬门槛，与「近 5 天上架」的展示窗口无关
+    result = list_candidates([TASK], review_status="all", limit=10, visible_days=0)
     candidate = result["items"][0]
 
     assert candidate["ai_verdict"] == "mismatch"
@@ -149,7 +150,8 @@ def test_same_model_benchmark_is_shown_as_market_price(tmp_path, monkeypatch):
         ),
     )
 
-    result = list_candidates([TASK], review_status="all", limit=10)
+    # visible_days=0：本用例只验硬门槛，与「近 5 天上架」的展示窗口无关
+    result = list_candidates([TASK], review_status="all", limit=10, visible_days=0)
     candidate = result["items"][0]
 
     assert candidate["ai_verdict"] == "recommend"

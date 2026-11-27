@@ -108,6 +108,17 @@ def _validate_cron_expression(value: Optional[str]) -> Optional[str]:
     return validate_cron_expression(value)
 
 
+def _to_optional_float(value) -> Optional[float]:
+    """把 "2549" / "¥2,549" / 2549 统一成 float；空/非法/非正数返回 None。"""
+    if value is None or value == "":
+        return None
+    try:
+        num = float(str(value).replace("¥", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return num if num > 0 else None
+
+
 def _normalize_price_value(value):
     if _normalize_optional_string(value) is None:
         return None
@@ -143,6 +154,11 @@ class Task(BaseModel):
     keyword_rules: List[str] = Field(default_factory=list)
     title_include_keywords: List[str] = Field(default_factory=list)
     title_exclude_keywords: List[str] = Field(default_factory=list)
+    # 「当前电商全新最低价（含国补/清仓）」的人工锚点，用于算性价比分。
+    # 项目只抓闲鱼，拿不到京东/淘宝实时价，所以这个值只能由人填、由人维护；
+    # 留空时性价比分整维「不可判」（不扣分但也不给分，任务最高只能到 75 分）。
+    new_price_anchor: Optional[float] = None
+    new_price_note: Optional[str] = None
     is_running: bool = False
 
     @model_validator(mode="before")
@@ -202,6 +218,8 @@ class TaskCreate(BaseModel):
     keyword_rules: List[str] = Field(default_factory=list)
     title_include_keywords: List[str] = Field(default_factory=list)
     title_exclude_keywords: List[str] = Field(default_factory=list)
+    new_price_anchor: Optional[float] = None
+    new_price_note: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -212,6 +230,18 @@ class TaskCreate(BaseModel):
     @classmethod
     def convert_price_to_str(cls, value):
         return _normalize_price_value(value)
+
+    @field_validator("new_price_anchor", mode="before")
+    @classmethod
+    def normalize_new_price_anchor(cls, value):
+        # 空串/0/负数都视为「没配锚点」，避免 0 被当成锚点后算出除零或 ∞ 折扣。
+        num = _to_optional_float(value)
+        return num if num and num > 0 else None
+
+    @field_validator("new_price_note", mode="before")
+    @classmethod
+    def normalize_new_price_note(cls, value):
+        return _normalize_optional_string(value)
 
     @field_validator("cron", mode="before")
     @classmethod
@@ -278,6 +308,9 @@ class TaskUpdate(BaseModel):
     keyword_rules: Optional[List[str]] = None
     title_include_keywords: Optional[List[str]] = None
     title_exclude_keywords: Optional[List[str]] = None
+    # 注意：显式传 null 表示「清空锚点」，不传则保持原值（PATCH 语义）。
+    new_price_anchor: Optional[float] = None
+    new_price_note: Optional[str] = None
     is_running: Optional[bool] = None
 
     @model_validator(mode="before")
@@ -351,6 +384,8 @@ class TaskGenerateRequest(BaseModel):
     keyword_rules: List[str] = Field(default_factory=list)
     title_include_keywords: List[str] = Field(default_factory=list)
     title_exclude_keywords: List[str] = Field(default_factory=list)
+    new_price_anchor: Optional[float] = None
+    new_price_note: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -361,6 +396,12 @@ class TaskGenerateRequest(BaseModel):
     @classmethod
     def convert_price_to_str(cls, value):
         return _normalize_price_value(value)
+
+    @field_validator("new_price_anchor", mode="before")
+    @classmethod
+    def normalize_new_price_anchor(cls, value):
+        num = _to_optional_float(value)
+        return num if num and num > 0 else None
 
     @field_validator("cron", mode="before")
     @classmethod

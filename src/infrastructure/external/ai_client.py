@@ -33,6 +33,11 @@ from src.services.ai_response_parser import (
     parse_ai_response_json,
 )
 
+# 商品分析要输出 8 个字段的完整 JSON（seller_type 下还有 4 段子分析），
+# 显卡等新判据的 prompt 本身就有 6k+ 字符。4000 会在 seller_type 之后被静默截断，
+# 导致 shipping / seller_credit 整段丢失，这里与 ai_handler 对齐取 8192。
+ANALYZE_MAX_OUTPUT_TOKENS = 8192
+
 
 def _normalize_no_proxy_host(part: str) -> str:
     """Return an httpx-safe NO_PROXY host, or the original entry if unchanged."""
@@ -80,6 +85,11 @@ def _sanitize_no_proxy_env() -> None:
         cleaned = [_normalize_no_proxy_host(part) for part in parts]
         if cleaned != parts:
             os.environ[key] = ",".join(cleaned)
+
+
+def _is_deepseek_reasoning_model(model_name: Optional[str]) -> bool:
+    """判断是否是带默认思考链的 DeepSeek 模型（需要显式关闭 thinking）。"""
+    return str(model_name or "").strip().lower().startswith("deepseek")
 
 
 class AIClient:
@@ -171,7 +181,13 @@ class AIClient:
 
         try:
             messages = self._build_messages(product_data, image_paths, prompt_text)
-            response = await self._call_ai(messages)
+            # 商品分析要输出 8 个字段的完整 JSON（seller_type 下还有 4 段子分析）。
+            # 之前用默认的 4000 会在 seller_type 之后被静默截断，
+            # shipping / seller_credit 直接丢失。与 ai_handler 保持一致取 8192。
+            response = await self._call_ai(
+                messages,
+                max_output_tokens=ANALYZE_MAX_OUTPUT_TOKENS,
+            )
             return self._parse_response(response)
         except Exception as e:
             print(f"AI 分析失败: {e}")
@@ -224,8 +240,16 @@ class AIClient:
             if not use_temperature:
                 request_params = remove_temperature_param(request_params)
 
-            if self.settings.enable_thinking:
-                request_params["extra_body"] = {"enable_thinking": False}
+            # DeepSeek 系列（deepseek-flash / deepseek-v4-pro）默认 reasoning effort 为 high，
+            # 会吞掉数千个 max_tokens（实测 4121 个），导致七维 JSON 在 seller_type 之后
+            # 被静默截断（finished_reason 仍是 stop，难察觉）。
+            # 本项目所有调用都是"按固定模板输出 JSON"，不需要思考链，统一关闭。
+            # 注意：这里不能用 self.settings.enable_thinking 做条件——该配置默认 False，
+            # 一旦用它做判断，关闭思考的逻辑永远不会执行。
+            if _is_deepseek_reasoning_model(self.settings.model_name):
+                extra_body = dict(request_params.get("extra_body") or {})
+                extra_body.setdefault("thinking", {"type": "disabled"})
+                request_params["extra_body"] = extra_body
 
             try:
                 response = await create_ai_response_async(

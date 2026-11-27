@@ -60,11 +60,12 @@ class TaskRunService:
         trigger: str = "manual",
         log_path: str | None = None,
     ) -> int:
-        if not task_id or int(task_id) <= 0:
+        # task_id 允许为 0（第一个任务的 id 就是 0），只有 None 或负数才是非法值。
+        if task_id is None or int(task_id) < 0:
             return 0
         bootstrap_sqlite_storage()
         started_at = _now_iso()
-        resolved_log_path = log_path or build_task_log_path(int(task_id or 0), task_name)
+        resolved_log_path = log_path or build_task_log_path(int(task_id), task_name)
         with sqlite_connection() as conn:
             # 同一个任务只允许一个活动运行，历史残留先收口，避免 UI 同时出现两个“运行中”。
             conn.execute(

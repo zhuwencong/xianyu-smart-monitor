@@ -3,6 +3,7 @@ import json
 import os
 import random
 import re
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -55,6 +56,10 @@ from src.services.item_analysis_dispatcher import (
     ItemAnalysisJob,
 )
 from src.services.title_filter import build_title_filter
+from src.services.publish_time_filter import (
+    build_publish_time_filter,
+    describe_listing_age,
+)
 from src.services.price_history_service import (
     build_market_reference,
     load_price_snapshots,
@@ -649,6 +654,9 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         task_config.get("title_include_keywords"),
         task_config.get("title_exclude_keywords"),
     )
+    # 本地时效兜底：闲鱼原生「新发布」筛选失败时会静默放行整页老卡，
+    # 这里按同一个 new_publish_option 再卡一次，省掉详情页与 AI 开销。
+    publish_filter = build_publish_time_filter(new_publish_option)
 
     processed_links = set()
     history_run_id = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -727,10 +735,15 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         run_started_ts = time.monotonic()
         cooldown_counter = 0
         title_skipped_count = 0
+        publish_skipped_count = 0
         if not title_filter.is_empty:
             log_time(
                 f"[预筛] 已启用标题过滤：必含 {list(title_filter.include) or '不限'}"
                 f"，排除 {list(title_filter.exclude) or '无'}"
+            )
+        if not publish_filter.is_empty:
+            log_time(
+                f"[预筛] 已启用上架时效过滤：仅保留 {publish_filter.max_age_days} 天内发布的商品"
             )
         log_time(
             f"[节奏] 倍率 {get_speed_factor():g}x，每 {pacing['cooldown_every'] or '不'} 个商品长休息 "
@@ -1156,6 +1169,19 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                     f"{str(item_data.get('商品标题', ''))[:40]}..."
                                 )
                             continue
+
+                        publish_keep, publish_skip_reason = publish_filter.check(
+                            item_data.get("发布时间")
+                        )
+                        if not publish_keep:
+                            publish_skipped_count += 1
+                            if publish_skipped_count <= 5:
+                                log_time(
+                                    f"[预筛] 跳过（{publish_skip_reason}）："
+                                    f"{str(item_data.get('商品标题', ''))[:40]}..."
+                                )
+                            continue
+
                         basic_items.append(item_data)
 
                     if not basic_items:
@@ -1296,6 +1322,12 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                 )
                                 if description_text:
                                     item_data["商品描述"] = str(description_text)
+                                # 上架时长本地算死再交给 AI：
+                                # LLM 做日期减法会把「11 分钟前发布」判成「超 3 天」。
+                                if not publish_filter.is_empty:
+                                    item_data["上架时长"] = describe_listing_age(
+                                        item_data.get("发布时间")
+                                    )
                                 # ...[此处可添加更多从详情页解析出的商品信息]...
 
                                 user_id = await safe_get(seller_do, "sellerId")
@@ -1430,8 +1462,19 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                     await analysis_dispatcher.join()
                 log_time("任务执行完毕，浏览器将在5秒后自动关闭...")
                 await asyncio.sleep(5)
-                if debug_limit:
-                    input("按回车键关闭浏览器...")
+                # 只有「非无头 + 真终端交互」时才停下来等回车，便于人工看现场。
+                # 无头模式或后台/被调度进程里没有 stdin，input() 会一直阻塞
+                # 或直接抛 EOFError，导致进程不退出、任务卡在 running。
+                if (
+                    debug_limit
+                    and not RUN_HEADLESS
+                    and sys.stdin is not None
+                    and sys.stdin.isatty()
+                ):
+                    try:
+                        input("按回车键关闭浏览器...")
+                    except (EOFError, KeyboardInterrupt):
+                        pass
                 try:
                     await browser.close()
                 except Exception as close_error:
@@ -1440,6 +1483,12 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         if title_skipped_count:
             log_time(
                 f"[预筛] 本次运行共跳过 {title_skipped_count} 个标题不匹配商品"
+                "（未请求详情页、未调用 AI）。"
+            )
+        if publish_skipped_count:
+            log_time(
+                f"[预筛] 本次运行共跳过 {publish_skipped_count} 个超出 "
+                f"{publish_filter.max_age_days} 天时效的商品"
                 "（未请求详情页、未调用 AI）。"
             )
         return processed_item_count

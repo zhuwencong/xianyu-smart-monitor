@@ -3,6 +3,102 @@ import { http } from '@/lib/http'
 export type ReviewStatus = 'unseen' | 'favorite' | 'handled'
 export type AiVerdict = 'recommend' | 'verify' | 'mismatch' | 'failed'
 export type TaskStatus = 'running' | 'waiting' | 'cooldown' | 'paused'
+export type OfferGrade = 'buy' | 'negotiate' | 'watch' | 'skip'
+
+/** 六个主维度的 key。顺序即 UI 展示顺序（先「贵不贵」再「值不值」）。 */
+export type OfferDimensionKey =
+  | 'price_market'
+  | 'value_vs_new'
+  | 'seller'
+  | 'authenticity'
+  | 'device_health'
+  | 'safety'
+
+/** 绝对分模型里的单个维度。value 为 null 表示「不可判」，不是 0 分。 */
+export interface OfferDimension {
+  key: OfferDimensionKey
+  label: string
+  value: number | null
+  /** 该维度满分，同时是进度条分母 */
+  max: number
+  /** 与 max 同值，保留旧字段名供 UI 标注「权重」 */
+  weight: number
+  reason: string
+  /** true = 该分值含推定成分（如「描述与图片一致」未逐图比对） */
+  inferred: boolean
+  scored: boolean
+}
+
+/** 辅助加减分：不占权重，直接对总分做修正，合计钉死 ±10。 */
+export interface OfferAdjustment {
+  key: string
+  label: string
+  /** 正负分值。clamp 项的 delta 是「被压回」的差额，最终各项之和 = 实际加分 */
+  delta: number
+  tone: 'good' | 'bad' | 'neutral'
+}
+
+export interface OfferVeto {
+  key: string
+  label: string
+  detail: string
+  /** hard_gate = 来自底层硬门槛（矿卡/故障/维修史等） */
+  source?: string
+}
+
+export interface OfferMissingItem {
+  key: string
+  label: string
+  detail: string
+  /** 可直接发给卖家的问句；为空表示需人工核对或属于任务配置问题 */
+  ask: string
+  /** 这一项缺失丢了多少分，用来判断补哪项最值 */
+  weight_lost?: number
+  /** true = 属于任务配置问题（如没填全新价锚点），问卖家无用 */
+  internal?: boolean
+  note?: string
+}
+
+/** 100 分制绝对分：6 维加权 + 辅助加减分 + 独立一票否决。不读 AI 输出。 */
+export interface OfferScore {
+  listing_id: string
+  scores: Record<OfferDimensionKey, number | null>
+  weights: Record<OfferDimensionKey, number>
+  dimensions: OfferDimension[]
+  /** 六维原始得分（未加辅助分） */
+  base_total: number | null
+  /** 最终得分（0–100）= base_total + adjustment_total，且不超过 scored_max */
+  total: number | null
+  /** 实际生效的辅助分（可能被缺项上限吃掉一部分） */
+  adjustment_total: number
+  /** 辅助分的「意图」总和（未受上限约束），用于解释少加的那部分 */
+  adjustment_intent: number
+  adjustments: OfferAdjustment[]
+  /** 实际拿到过分的维度权重之和；< 100 说明有维度不可判 */
+  scored_max: number
+  max_total: number
+  /** 二手行情维度是否可判 */
+  price_judged: boolean
+  /** 相对全新价维度是否可判（未配置价格锚点时 false） */
+  value_judged: boolean
+  grade: OfferGrade
+  grade_label: string
+  grade_note: string
+  /** 评级被上层判定降级时的来源：verdict = 底层引擎判不匹配/待核实 */
+  demoted_by?: string
+  veto_flags: OfferVeto[]
+  vetoed: boolean
+  missing_items: OfferMissingItem[]
+  missing_labels: string[]
+  ask_script: string
+  /** 二手价 ÷ 同型号二手行情中位数 */
+  price_ratio: number | null
+  /** 二手价 ÷ 当前全新最低价（含国补/清仓） */
+  ratio_used_vs_new: number | null
+  market_median: number | null
+  new_price_anchor: number | null
+  new_price_note: string
+}
 
 export interface CandidateCriteria {
   key: string
@@ -51,6 +147,8 @@ export interface Candidate {
   ai_score: number | null
   ai_value_score: number | null
   score_breakdown: { key: string; label: string; value: number }[]
+  /** 100 分制绝对分（5 维 + 一票否决），不读 AI，阈值可直接对外解释 */
+  offer?: OfferScore
   risk_tags: string[]
   missing_checks: string[]
   criteria: CandidateCriteria[]
@@ -60,13 +158,29 @@ export interface Candidate {
   /** 底层硬门槛是否否决了这条候选（否决后分数封顶 40，且不会推送） */
   hard_blocked?: boolean
   hard_gates?: { key: string; label: string; detail: string; severity: string }[]
-  specs?: { model: string; vram_gb: number | null; card_class: string }
+  specs?: {
+    model: string
+    vram_gb: number | null
+    card_class: string
+    /** 是否识别为显卡本体（配件、打包件为 false） */
+    is_real_gpu?: boolean
+    /** 显卡性能评估；非显卡或型号不认识时为 null */
+    perf?: {
+      score: number
+      perf_index: number
+      generation: string
+      vram_gb: number | null
+      label: string
+    } | null
+  }
   market: {
     avg: number | null
     low: number | null
     high: number | null
     samples: number | null
     label: string | null
+    /** 标签被故障判定覆盖时的原因说明 */
+    note?: string | null
     /** model / family 才代表同型号可比价，其它口径不参与评分 */
     scope?: string | null
     comparable?: boolean
@@ -83,6 +197,10 @@ export interface CandidateResponse {
   task_counts: Record<string, number>
   review_labels: Record<ReviewStatus, string>
   ai_labels: Record<AiVerdict, string>
+  /** 当前生效的新鲜度窗口（天），0 表示不限 */
+  visible_days?: number
+  /** 因为超出窗口而被隐藏的条数（只是没显示，数据库里还在） */
+  hidden_stale_count?: number
 }
 
 export interface CandidateQuery {
@@ -93,6 +211,8 @@ export interface CandidateQuery {
   sort?: 'smart' | 'newest' | 'price_asc' | 'price_desc' | 'score'
   page?: number
   limit?: number
+  /** 只看最近几天上架的；0 = 看全部历史 */
+  days?: number
 }
 
 export interface WorkbenchRun {
@@ -139,6 +259,9 @@ export interface WorkbenchTask {
   description: string
   title_include_keywords: string[]
   title_exclude_keywords: string[]
+  /** 「当前电商全新最低价」人工锚点；null = 未配置，性价比分不可判 */
+  new_price_anchor?: number | null
+  new_price_note?: string | null
 }
 
 export interface WorkbenchTaskResponse {
@@ -209,6 +332,7 @@ export async function getCandidates(params: CandidateQuery): Promise<CandidateRe
       sort: params.sort ?? 'smart',
       page: params.page ?? 1,
       limit: params.limit ?? 12,
+      days: params.days ?? 5,
     },
   })
 }

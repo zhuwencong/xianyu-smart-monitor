@@ -8,8 +8,10 @@
 判定依据是详情接口 ``mtop.taobao.idle.pc.detail`` 返回的 ``itemDO.itemStatus``：
 ``0`` 在售、``1`` 已售出，其余视为已下架。接口没返回时退回页面文案兜底。
 
-注意：本模块必须用有头浏览器。无头模式几乎必中滑块（FAIL_SYS_USER_VALIDATE），
-这一点实测确认过，别改成 headless=True 省事。
+运行模式跟随 ``.env`` 的 ``RUN_HEADLESS``（默认 true = 无头，不弹窗口）。
+无头模式确实比有头更容易中滑块，所以这里用真实 Edge 内核（``channel="msedge"``）
+配合 ``--headless=new`` 跑，尽量贴近真人环境；万一被风控，把 ``RUN_HEADLESS``
+改成 ``false`` 即可临时切回有头排查。
 """
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ from urllib.parse import quote
 from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from src.config import DETAIL_API_URL_PATTERN, RUN_HEADLESS
+from src.config import DETAIL_API_URL_PATTERN, LOGIN_IS_EDGE, RUN_HEADLESS, RUNNING_IN_DOCKER
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
 
@@ -93,6 +95,13 @@ def enter_cooldown(reason: str = "", hours: int = COOLDOWN_HOURS) -> None:
             )
     except OSError:
         pass
+
+
+def _resolve_browser_channel() -> str:
+    """优先用本机真实浏览器内核，无头下比裸 Chromium 更不容易被识别。"""
+    if RUNNING_IN_DOCKER:
+        return "chromium"
+    return "msedge" if LOGIN_IS_EDGE else "chrome"
 
 
 def _launch_args() -> list[str]:
@@ -331,12 +340,14 @@ async def check_listing_status(
     summary["cookie"] = cookie
 
     use_headless = RUN_HEADLESS if headless is None else headless
-    # 无头必中滑块，除非显式要求，否则一律有头。
-    if headless is None:
-        use_headless = False
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=use_headless, args=_launch_args())
+        launch_kwargs: dict = {"headless": use_headless, "args": _launch_args()}
+        # 有头/无头都固定用真实浏览器内核，避免裸 chromium 被识别。
+        channel = _resolve_browser_channel()
+        if channel != "chromium":
+            launch_kwargs["channel"] = channel
+        browser = await p.chromium.launch(**launch_kwargs)
         context = await browser.new_context(storage_state=cookie, **_CONTEXT_OPTIONS)
         await context.add_init_script(_ANTI_DETECT_SCRIPT)
         page = await context.new_page()

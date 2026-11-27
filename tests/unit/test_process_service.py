@@ -29,6 +29,11 @@ class FakeProcess:
 
 
 def test_process_service_marks_task_stopped_when_process_exits(monkeypatch, tmp_path):
+    # task_id=0 现在会真实写入 task_runs，必须隔离数据库，避免污染生产库。
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("APP_DATABASE_FILE", str(tmp_path / "app.sqlite3"))
+    bootstrap_sqlite_storage(legacy_config_file=None)
+
     fake_process = FakeProcess(pid=4321)
     events = []
 

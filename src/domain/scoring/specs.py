@@ -60,6 +60,7 @@ _PROFESSIONAL_TOKENS = (
 )
 _MINING_TOKENS = ("矿卡", "挖矿", "矿机", "矿场", "锻炼", "算力卡", "p106", "p104", "p102")
 _DEFECT_TOKENS = (
+    # --- 显卡 / 整机通电类 ---
     "点不亮",
     "不点亮",
     "无法点亮",
@@ -74,6 +75,34 @@ _DEFECT_TOKENS = (
     "烧毁",
     "掉驱动",
     "缺件",
+    # --- 网络 / 信号类（路由器、随身WiFi、网卡）---
+    # 卖家常用「不影响使用」「其他功能正常」淡化这些明确的功能故障。
+    "自动断联",
+    "频繁断联",
+    "断联",
+    "断流",
+    "掉线",
+    "掉网",
+    "断网",
+    "无法联网",
+    "连不上",
+    "信号丢失",
+    "无法绑定",
+    "绑定失败",
+    "无法识别",
+    "不识别",
+    "无法开机",
+    "无法启动",
+    "死机",
+    "锁机",
+    "锁网",
+    # --- 外观 / 结构类（影响可靠性的硬伤）---
+    "拆卸痕迹",
+    "开过后盖",
+    "进水",
+    "泡水",
+    "进水机",
+    "漏液",
 )
 _REPAIR_TOKENS = (
     "维修过",
@@ -89,8 +118,18 @@ _REPAIR_TOKENS = (
     "翻新",
 )
 _BULK_DISASSEMBLY_TOKENS = ("网吧拆机", "服务器拆机", "批量拆机", "大量拆机", "批量出")
+_BULK_BUNDLE_TOKENS = ("打包卖", "打包出", "一起出", "主板，处理器", "整机卖", "全套出")
 _PICKUP_ONLY_TOKENS = ("仅限自提", "只出本地", "同城自提", "不邮寄", "不发货", "只能自提")
 _SHIPPING_TOKENS = ("包邮", "可邮寄", "发快递", "走顺丰", "顺丰包邮")
+
+# 显卡周边的配件/耗材：标题里有「显卡」字样，但卖的根本不是卡。
+# 实测「联立四代显卡霓虹线」被判成显卡并给了 60 分，属于典型误判。
+_ACCESSORY_TOKENS = (
+    "霓虹线", "发光线", "供电线", "显卡线", "延长线", "转接线", "转接头",
+    "显卡坞", "扩展坞", "水冷头", "冷头", "支架", "竖装架", "显卡支架",
+    "背板", "散热器", "风扇替换", "硅脂", "导热垫", "空盒", "包装盒",
+    "钥匙扣", "模型", "手办", "贴纸", "铭牌",
+)
 
 # 「没有 / 非 / 不是」这类否定前缀，命中时要反过来读
 _NEGATION_PREFIXES = ("非", "无", "不", "没", "未")
@@ -111,12 +150,28 @@ class ItemSpecs:
     mining_signals: tuple[str, ...] = ()
     repair_signals: tuple[str, ...] = ()
     bulk_disassembly: bool = False
+    bulk_bundle: bool = False
+    accessory_signals: tuple[str, ...] = ()
     pickup_only: bool = False
     ships: bool = False
 
     @property
     def has_blocking_defect(self) -> bool:
         return bool(self.defects)
+
+    @property
+    def is_real_gpu(self) -> bool:
+        """真·显卡本体：认出了型号、且不是配件/打包件。
+
+        为什么单看 is_gpu 不够：只要有「显卡」二字 is_gpu 就为真，
+        「显卡霓虹线」「显卡主板打包卖」全都能混进来，还会拿到正常分数。
+        """
+        return (
+            self.is_gpu
+            and bool(self.model_family)
+            and not self.accessory_signals
+            and not self.bulk_bundle
+        )
 
 
 def _normalize(text: Iterable[object]) -> str:
@@ -270,6 +325,8 @@ def extract_specs(
         mining_signals=mining,
         repair_signals=_matched_tokens(raw, _REPAIR_TOKENS),
         bulk_disassembly=bool(_matched_tokens(raw, _BULK_DISASSEMBLY_TOKENS)),
+        bulk_bundle=bool(_matched_tokens(raw, _BULK_BUNDLE_TOKENS)),
+        accessory_signals=_matched_tokens(raw, _ACCESSORY_TOKENS),
         pickup_only=bool(_matched_tokens(raw, _PICKUP_ONLY_TOKENS))
         and not bool(_matched_tokens(raw, _SHIPPING_TOKENS)),
         ships=bool(_matched_tokens(raw, _SHIPPING_TOKENS)),

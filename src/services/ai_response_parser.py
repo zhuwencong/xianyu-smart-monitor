@@ -99,12 +99,54 @@ def parse_ai_response_json(content: str) -> dict:
     """解析 AI 文本响应中的 JSON。"""
     cleaned = _strip_code_fences(content)
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
         repaired = _repair_truncated_json(cleaned)
         if isinstance(repaired, dict):
-            return repaired
-        return _extract_first_json_value(cleaned, exc)
+            return normalize_analysis_schema(repaired)
+        return normalize_analysis_schema(_extract_first_json_value(cleaned, exc))
+    return normalize_analysis_schema(parsed)
+
+
+# criteria_analysis 下应当平铺的字段。模型在长嵌套结构里
+# （seller_type 内部有 4 层 analysis_details）经常把尾部字段误挂进
+# seller_type，导致 shipping / seller_credit 在读取侧"消失"。
+_FLAT_ANALYSIS_KEYS = (
+    "model_chip",
+    "battery_health",
+    "condition",
+    "history",
+    "seller_type",
+    "shipping",
+    "seller_credit",
+)
+
+
+def normalize_analysis_schema(parsed: Any) -> Any:
+    """把模型可能错位嵌套的分析字段提回 criteria_analysis 顶层。
+
+    实测（deepseek-flash + 显卡判据）：约 6 成响应会把 shipping 与
+    seller_credit 塞进 criteria_analysis.seller_type 里。JSON 本身合法，
+    所以只看 json.loads 是否成功发现不了问题，字段却整段丢失。
+    这里做一次幂等纠正：只在目标键缺失、且来源键存在时才搬移。
+    """
+    if not isinstance(parsed, dict):
+        return parsed
+
+    analysis = parsed.get("criteria_analysis")
+    if not isinstance(analysis, dict):
+        return parsed
+
+    seller_type = analysis.get("seller_type")
+    nested_source = seller_type if isinstance(seller_type, dict) else {}
+
+    for key in _FLAT_ANALYSIS_KEYS:
+        if key in analysis or key == "seller_type":
+            continue
+        if key in nested_source:
+            analysis[key] = nested_source.pop(key)
+
+    return parsed
 
 
 def _coerce_content_parts(content: Any) -> str:

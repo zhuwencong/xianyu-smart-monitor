@@ -35,6 +35,10 @@ const selectedAccountStateFile = ref(AUTO_ACCOUNT_VALUE)
 const keywordRulesInput = ref('')
 const titleIncludeInput = ref('')
 const titleExcludeInput = ref('')
+// 全新价锚点用字符串存，空串代表「未配置」——不能默认 0，
+// 0 会被算成「全新价是 0 元」，性价比分直接炸成无穷大的漏。
+const newPriceAnchorInput = ref('')
+const newPriceNoteInput = ref('')
 const cronMode = ref<'preset' | 'custom'>('preset')
 
 // 常用 cron 预设选项
@@ -127,6 +131,9 @@ watch(() => [props.mode, props.initialData, props.defaultValues, props.defaultAc
       props.initialData.title_exclude_keywords ||
       []
     ).join(', ')
+    newPriceAnchorInput.value =
+      form.value.new_price_anchor != null ? String(form.value.new_price_anchor) : ''
+    newPriceNoteInput.value = form.value.new_price_note || ''
     // 编辑模式下，根据 cron 值判断模式
     const cronVal = defaultValues.cron ?? props.initialData.cron ?? ''
     cronMode.value = isPresetCronValue(cronVal) ? 'preset' : 'custom'
@@ -164,6 +171,9 @@ watch(() => [props.mode, props.initialData, props.defaultValues, props.defaultAc
     }
     titleIncludeInput.value = (defaultValues.title_include_keywords || []).join(', ')
     titleExcludeInput.value = (defaultValues.title_exclude_keywords || []).join(', ')
+    newPriceAnchorInput.value =
+      defaultValues.new_price_anchor != null ? String(defaultValues.new_price_anchor) : ''
+    newPriceNoteInput.value = defaultValues.new_price_note || ''
     // 创建模式下，根据默认值判断模式
     const cronVal = defaultValues.cron ?? ''
     cronMode.value = isPresetCronValue(cronVal) ? 'preset' : 'custom'
@@ -265,6 +275,10 @@ function handleSubmit() {
   submitData.keyword_rules = decisionMode === 'keyword' ? keywordRules : []
   submitData.title_include_keywords = parseKeywordText(titleIncludeInput.value)
   submitData.title_exclude_keywords = parseKeywordText(titleExcludeInput.value)
+  // 留空必须传 null（清空锚点），不能传 0 或 ''
+  const anchor = Number.parseFloat(newPriceAnchorInput.value)
+  submitData.new_price_anchor = Number.isFinite(anchor) && anchor > 0 ? anchor : null
+  submitData.new_price_note = newPriceNoteInput.value.trim() || null
   if (decisionMode === 'keyword' && !submitData.description) {
     submitData.description = ''
   }
@@ -331,6 +345,35 @@ function handleSubmit() {
             </div>
           </div>
           <p class="text-xs text-gray-500">{{ t('tasks.form.titleFilterHint') }}</p>
+        </div>
+      </div>
+
+      <!-- 全新价锚点：性价比分的唯一数据来源。项目只抓闲鱼，
+           拿不到京东/淘宝实时价，所以只能人工填、人工维护。 -->
+      <div class="grid gap-2 sm:grid-cols-4 sm:gap-4">
+        <Label class="pt-1 sm:pt-2 sm:text-right">全新最低价</Label>
+        <div class="space-y-2 sm:col-span-3">
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div class="space-y-1">
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-600">¥</span>
+                <Input
+                  v-model="newPriceAnchorInput"
+                  inputmode="decimal"
+                  placeholder="2549"
+                />
+              </div>
+              <p class="text-xs text-gray-500">当前电商最低到手价（含国补/清仓）</p>
+            </div>
+            <div class="space-y-1">
+              <Input v-model="newPriceNoteInput" placeholder="如：京东清仓 2549，2026-11" />
+              <p class="text-xs text-gray-500">锚点来源与时间，方便以后判断是否过期</p>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500">
+            留空则「性价比分」(25 分) 不可判，该任务最高只能给「可谈」——不会当成 0 分扣，
+            但也绝不会因为你没填就给出「直接冲」。
+          </p>
         </div>
       </div>
       <div v-if="form.decision_mode === 'ai'" class="grid gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">

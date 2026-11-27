@@ -79,7 +79,10 @@ def test_ai_value_score_only_nudges_the_ranking():
 def test_verify_and_mismatch_caps():
     dims = {"match": 95, "price": 95, "seller": 95, "evidence": 95}
     assert resolve_overall(dimensions=dims, ai_value_score=95, verdict="verify") <= 74
-    assert resolve_overall(dimensions=dims, ai_value_score=95, verdict="mismatch") <= 58
+    # MISMATCH_CAP 从 58 放宽到 68：58 会让所有被否决的商品显示同一个数字
+    # （实测 37/40 条都是 58），看不出「哪张卡被否得可惜」。这里断言的是
+    # 「mismatch 仍被明显压制」，而不是某个具体整数。
+    assert resolve_overall(dimensions=dims, ai_value_score=95, verdict="mismatch") <= 68
 
 
 def test_breakdown_payload_keeps_four_dimensions():

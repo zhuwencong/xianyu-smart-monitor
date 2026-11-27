@@ -83,8 +83,8 @@ def _import_tasks_if_needed(conn, legacy_config_file: str | None) -> None:
                 ai_prompt_base_file, ai_prompt_criteria_file, account_state_file,
                 account_strategy, free_shipping, new_publish_option, region,
                 decision_mode, keyword_rules_json, title_include_json,
-                title_exclude_json, is_running
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                title_exclude_json, is_running, new_price_anchor, new_price_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 index,
@@ -114,6 +114,8 @@ def _import_tasks_if_needed(conn, legacy_config_file: str | None) -> None:
                     raw_task.get("title_exclude_keywords") or [], ensure_ascii=False
                 ),
                 _as_int(raw_task.get("is_running", False)),
+                _as_float(raw_task.get("new_price_anchor")),
+                raw_task.get("new_price_note"),
             ),
         )
     _mark_bootstrap_completed(conn, TASKS_BOOTSTRAP_KEY)
@@ -258,6 +260,17 @@ def _insert_price_snapshot(conn, record: dict) -> None:
             record.get("link"),
         ),
     )
+
+
+def _as_float(value) -> float | None:
+    """锚点价：空/非法/非正数一律返回 None（表示未配置）。"""
+    if value is None or value == "":
+        return None
+    try:
+        num = float(str(value).replace("¥", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return num if num > 0 else None
 
 
 def _as_int(value) -> int:

@@ -115,7 +115,9 @@ def test_candidates_dedupe_and_filters(tmp_path, monkeypatch):
     _insert_result("999", "2026-11-03T19:00:00", "second")
 
     task = SimpleNamespace(id=2, task_name="GTX 1070", keyword="GTX1070 8G")
-    result = list_candidates([task], review_status="all", limit=10)
+    # visible_days=0 关掉「只看近 5 天上架」的展示窗口：本用例锁的是去重与字段，
+    # 用的是写死的 2026-10/11 日期，跟当前日期无关。
+    result = list_candidates([task], review_status="all", limit=10, visible_days=0)
 
     assert result["total"] == 2
     assert result["counts"] == {"unseen": 2, "favorite": 0, "handled": 0}
@@ -127,9 +129,16 @@ def test_candidates_dedupe_and_filters(tmp_path, monkeypatch):
     assert latest["market"]["comparable"] is False
     assert latest["crawl_time"] == "2026-11-03T20:24:28"
     assert latest["ai_score"] is not None
-    assert [item["label"] for item in latest["score_breakdown"]] == ["匹配", "价格", "卖家", "凭证"]
+    # 显卡类商品会多一个「性能」维度（GTX1070 8G → 性能指数 115）。
+    assert [item["label"] for item in latest["score_breakdown"]] == [
+        "匹配",
+        "性能",
+        "价格",
+        "卖家",
+        "凭证",
+    ]
 
-    searched = list_candidates([task], review_status="all", query="索泰", limit=10)
+    searched = list_candidates([task], review_status="all", query="索泰", limit=10, visible_days=0)
     assert searched["total"] == 2
 
 
@@ -141,12 +150,12 @@ def test_update_candidate_review_and_ai_counts(tmp_path, monkeypatch):
 
     task = SimpleNamespace(id=2, task_name="GTX 1070", keyword="GTX1070 8G")
     assert update_candidate_review("1097137892689", "favorite") is True
-    favorite = list_candidates([task], review_status="favorite", limit=10)
+    favorite = list_candidates([task], review_status="favorite", limit=10, visible_days=0)
     assert favorite["total"] == 1
     assert favorite["counts"] == {"unseen": 0, "favorite": 1, "handled": 0}
     assert favorite["ai_counts"]["recommend"] == 1
 
-    unseen = list_candidates([task], review_status="unseen", limit=10)
+    unseen = list_candidates([task], review_status="unseen", limit=10, visible_days=0)
     assert unseen["total"] == 0
 
 

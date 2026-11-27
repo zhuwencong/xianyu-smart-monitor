@@ -7,6 +7,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  Copy,
   MapPin,
   Star,
   Store,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-vue-next'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { Candidate } from '@/api/workbench'
+import OfferScorePanel from './OfferScorePanel.vue'
 
 const props = defineProps<{ candidate: Candidate | null }>()
 const open = defineModel<boolean>('open', { default: false })
@@ -69,6 +71,20 @@ function scoreBar(value: number) {
   if (value >= 75) return 'bg-[#3B78ED]'
   if (value >= 60) return 'bg-[#E1A23C]'
   return 'bg-[#D26A58]'
+}
+
+/** 把缺项清单拼成一段可以直接发给卖家的话。复制走剪贴板，不额外请求后端。 */
+const askCopied = ref(false)
+async function copyAskScript() {
+  const script = props.candidate?.offer?.ask_script || ''
+  if (!script) return
+  try {
+    await navigator.clipboard.writeText(script)
+    askCopied.value = true
+    setTimeout(() => (askCopied.value = false), 2000)
+  } catch {
+    askCopied.value = false
+  }
 }
 </script>
 
@@ -166,17 +182,68 @@ function scoreBar(value: number) {
           </div>
 
           <div class="space-y-4 p-5">
-            <section v-if="candidate.ai_score !== null && candidate.score_breakdown?.length" class="rounded-xl border border-[#DCE6F5] bg-white p-4">
+            <section v-if="candidate.offer">
+              <div class="mb-2 flex items-center justify-between">
+                <h3 class="text-[13px] font-black text-[#1D3557]">捡漏评分</h3>
+                <span class="text-[10.5px] text-[#8B9AB0]">6 维加权 100 分 · 客观事实计算，不掺 AI</span>
+              </div>
+              <OfferScorePanel :offer="candidate.offer" variant="full" />
+            </section>
+
+            <!-- 缺项清单 → 验机话术，形成「评分 → 待办 → 问卖家」的闭环 -->
+            <section
+              v-if="candidate.offer?.missing_items?.length"
+              class="rounded-xl border border-[#F0E2C8] bg-[#FFFBF2] p-4"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="text-[13px] font-black text-[#8A651F]">
+                  待补 {{ candidate.offer.missing_items.length }} 项
+                </h3>
+                <button
+                  v-if="candidate.offer.ask_script"
+                  type="button"
+                  class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[#E4CFA4] bg-white px-2.5 text-[11px] font-bold text-[#8A651F] transition-colors hover:bg-[#FFF6E5]"
+                  @click="copyAskScript"
+                >
+                  <Check v-if="askCopied" class="h-3 w-3" :stroke-width="2.6" />
+                  <Copy v-else class="h-3 w-3" :stroke-width="2.2" />
+                  {{ askCopied ? '已复制' : '复制验机话术' }}
+                </button>
+              </div>
+              <ul class="mt-2 space-y-1.5">
+                <li
+                  v-for="item in candidate.offer.missing_items"
+                  :key="item.key"
+                  class="flex items-start gap-2 text-[11.5px] leading-[1.55]"
+                >
+                  <span class="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#D9B36A]"></span>
+                  <span class="min-w-0">
+                    <b class="font-bold text-[#7A5C1C]">{{ item.label }}</b>
+                    <span class="text-[#9A8558]"> — {{ item.detail }}</span>
+                    <span
+                      v-if="item.ask"
+                      class="mt-0.5 block rounded bg-white/70 px-2 py-1 text-[11px] italic text-[#8A6E3A]"
+                    >
+                      “{{ item.ask }}”
+                    </span>
+                  </span>
+                </li>
+              </ul>
+            </section>
+
+            <!-- 旧的相对质量分（含 AI 参考值）。放在绝对分之后、并降级为次要信息：
+                 两套尺子并列展示时，必须先明确哪个是结论、哪个是参考。 -->
+            <section v-if="candidate.ai_score !== null && candidate.score_breakdown?.length" class="rounded-xl border border-[#E7ECF5] bg-[#FAFBFD] p-4">
               <div class="flex items-center gap-3">
                 <div class="flex items-baseline gap-1.5">
                   <span class="text-[38px] font-black leading-none tracking-tight" :class="scoreColor(candidate.ai_score)">{{ candidate.ai_score }}</span>
                   <div>
-                    <p class="text-[11px] font-black text-[#40526C]">综合评分</p>
-                    <p class="text-[9.5px] text-[#94A2B8]">多维评估</p>
+                    <p class="text-[11px] font-black text-[#40526C]">相对质量分</p>
+                    <p class="text-[9.5px] text-[#94A2B8]">AI 参考 · 用于同批排序</p>
                   </div>
                 </div>
                 <span class="ml-auto rounded-md bg-[#F3F7FF] px-2 py-1 text-[10px] font-bold text-[#52709B]">
-                  评分越高越值得优先核实
+                  与上方「捡漏评分」是两把尺子
                 </span>
               </div>
               <div class="mt-3 grid grid-cols-4 gap-3">

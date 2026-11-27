@@ -24,6 +24,9 @@ export interface Task {
   keyword_rules: string[];
   title_include_keywords: string[];
   title_exclude_keywords: string[];
+  /** 全新最低价锚点，null = 未配置 */
+  new_price_anchor?: number | null;
+  new_price_note?: string | null;
   is_running: boolean;
 }
 
@@ -77,4 +80,6 @@ export interface TaskGenerateRequest {
   keyword_rules?: string[];
   title_include_keywords?: string[];
   title_exclude_keywords?: string[];
+  new_price_anchor?: number | null;
+  new_price_note?: string | null;
 }

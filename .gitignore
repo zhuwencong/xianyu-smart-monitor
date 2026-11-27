@@ -108,3 +108,6 @@ release/
 
 # 本地临时目录（服务/爬虫兜底，DSH 会话内也会用到）
 .tmp/
+.tmp_*
+.pytest_tmp/
+*.pt2.txt
