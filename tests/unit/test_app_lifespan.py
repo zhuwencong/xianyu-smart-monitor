@@ -1,4 +1,10 @@
 import asyncio
+import os
+from pathlib import Path
+
+# src.app 在 import 时用相对路径挂载 dist/assets，前面的用例可能已经 chdir 到 tmp_path，
+# 全量跑时会因此报「Directory 'dist/assets' does not exist」。先把工作目录锚回项目根。
+os.chdir(Path(__file__).resolve().parents[2])
 
 import src.app as app_module
 

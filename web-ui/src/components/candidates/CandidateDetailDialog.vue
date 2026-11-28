@@ -7,7 +7,9 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  Cpu,
   MapPin,
+  Smartphone,
   Star,
   Store,
   Tag,
@@ -52,6 +54,25 @@ const verdictTone = computed(() => {
   }
 })
 
+const GRADE_META: Record<string, { label: string; hint: string; badge: string }> = {
+  S: { label: 'S 级', hint: '立刻联系', badge: 'border-[#9FDCC4] bg-[#E6F7F0] text-[#0A6B4C]' },
+  A: { label: 'A 级', hint: '可谈', badge: 'border-[#BFD4F7] bg-[#EDF3FE] text-[#1E5BD8]' },
+  B: { label: 'B 级', hint: '补证据', badge: 'border-[#F1D7A7] bg-[#FFF8EA] text-[#A56209]' },
+  C: { label: 'C 级', hint: '观察', badge: 'border-[#DDE3EC] bg-[#F4F6FA] text-[#52637B]' },
+  D: { label: 'D 级', hint: '放弃', badge: 'border-[#F1D3CE] bg-[#FFF4F2] text-[#B83B2D]' },
+}
+
+const gradeMeta = computed(() => (props.candidate?.ai_grade ? GRADE_META[props.candidate.ai_grade] || null : null))
+const caps = computed(() => props.candidate?.caps_applied || [])
+const priceGapText = computed(() => {
+  const gap = props.candidate?.price_gap
+  if (gap === null || gap === undefined) return null
+  const diff = Math.round((1 - gap) * 100)
+  const approx = props.candidate?.price_gap_scope === 'keyword' ? '约' : ''
+  if (Math.abs(diff) < 1) return '与行情持平'
+  return diff > 0 ? `${approx}低于行情 ${diff}%` : `${approx}高于行情 ${Math.abs(diff)}%`
+})
+
 function criteriaTone(status: string) {
   if (status === 'PASS') return 'border-[#CAEBDD] bg-[#F0FBF6] text-[#0C7A56]'
   if (status === 'FAIL') return 'border-[#F2D2CD] bg-[#FFF5F3] text-[#B83B2D]'
@@ -70,6 +91,81 @@ function scoreBar(value: number) {
   if (value >= 60) return 'bg-[#E1A23C]'
   return 'bg-[#D26A58]'
 }
+
+// ---------- 品类分区：显卡看硬件，手机看关键核实 ----------
+const category = computed<'gpu' | 'phone' | 'other'>(() => {
+  const c = props.candidate
+  if (!c) return 'other'
+  if (c.category) return c.category
+  if (c.specs?.model) return 'gpu'
+  return 'other'
+})
+
+// 维度数量不同（手机 5 个、显卡 7 个），列数跟着调，避免最后一格孤零零。
+const breakdownGrid = computed(() => {
+  const count = props.candidate?.score_breakdown?.length || 0
+  if (count <= 4) return 'grid-cols-4'
+  if (count === 5) return 'grid-cols-5'
+  if (count <= 6) return 'grid-cols-3'
+  return 'grid-cols-4'
+})
+
+const CARD_CLASS_LABEL: Record<string, string> = {
+  consumer: '消费级',
+  professional: '专业卡',
+  mining: '矿卡',
+  unknown: '卡型未知',
+}
+
+const gpuSpecs = computed(() => {
+  const c = props.candidate
+  if (!c || category.value !== 'gpu' || !c.specs) return null
+  const expected = c.specs.expected_price
+  let verdict = ''
+  if (expected && c.price) {
+    const diff = Math.round((c.price / expected - 1) * 100)
+    if (diff <= -25) verdict = `比同档参考价低 ${Math.abs(diff)}%，捡漏区间`
+    else if (diff <= -10) verdict = `比同档参考价低 ${Math.abs(diff)}%，偏便宜`
+    else if (diff < 10) verdict = '与同档参考价基本持平'
+    else verdict = `比同档参考价高 ${diff}%，偏贵`
+  }
+  return {
+    model: c.specs.model_label || c.specs.model || '型号未识别',
+    vram: c.specs.vram_gb ? `${c.specs.vram_gb}G` : '未知',
+    cardClass: CARD_CLASS_LABEL[c.specs.card_class] || '卡型未知',
+    performance: c.specs.performance ?? null,
+    expected,
+    verdict,
+  }
+})
+
+const PHONE_KEYS = [
+  'battery_health',
+  'battery',
+  'warranty',
+  'account_and_codes',
+  'imei',
+  'condition',
+]
+const phoneChecks = computed(() => {
+  const c = props.candidate
+  if (!c || category.value !== 'phone') return []
+  const byKey = new Map(c.criteria.map((item) => [item.key, item]))
+  const picked: { key: string; label: string; status: string; statusLabel: string; comment: string }[] = []
+  for (const key of PHONE_KEYS) {
+    const item = byKey.get(key)
+    if (!item) continue
+    picked.push({
+      key,
+      label: key === 'battery_health' || key === 'battery' ? '电池健康' : item.label || key,
+      status: String(item.status || '').toUpperCase(),
+      statusLabel: item.status_label || item.status,
+      comment: (item.comment || item.evidence || '').trim(),
+    })
+    if (picked.length >= 4) break
+  }
+  return picked
+})
 </script>
 
 <template>
@@ -82,6 +178,13 @@ function scoreBar(value: number) {
         <div class="flex items-start gap-4 border-b border-[#EDF1F7] px-6 py-5 pr-14">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
+              <span
+                v-if="gradeMeta"
+                class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black"
+                :class="gradeMeta.badge"
+              >
+                {{ gradeMeta.label }} · {{ gradeMeta.hint }}
+              </span>
               <span class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black" :class="verdictTone">
                 <CircleCheck v-if="candidate.ai_verdict === 'recommend'" class="h-3 w-3" />
                 <CircleHelp v-else-if="candidate.ai_verdict === 'verify'" class="h-3 w-3" />
@@ -95,7 +198,10 @@ function scoreBar(value: number) {
             <h2 class="mt-2 text-[20px] font-black leading-[1.4] tracking-tight text-[#172B4D]">
               {{ candidate.title }}
             </h2>
-            <p class="mt-2 text-[26px] font-black leading-none text-[#E03838]">{{ candidate.price_display }}</p>
+            <p class="mt-2 flex flex-wrap items-baseline gap-2">
+              <span class="text-[26px] font-black leading-none text-[#E03838]">{{ candidate.price_display }}</span>
+              <span v-if="priceGapText" class="text-[11.5px] font-bold text-[#0A6B4C]">{{ priceGapText }}</span>
+            </p>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <a
@@ -179,7 +285,25 @@ function scoreBar(value: number) {
                   评分越高越值得优先核实
                 </span>
               </div>
-              <div class="mt-3 grid grid-cols-4 gap-3">
+              <div v-if="caps.length" class="mt-3 rounded-lg border border-[#F1D7A7] bg-[#FFF9ED] px-3 py-2">
+                <p class="text-[10.5px] font-black text-[#A56209]">已触发封顶规则，总分不得高于上限</p>
+                <ul class="mt-1 space-y-0.5">
+                  <li v-for="cap in caps" :key="cap" class="text-[11px] leading-snug text-[#9B6A2F]">· {{ cap }}</li>
+                </ul>
+              </div>
+              <p
+                v-if="candidate.recommended && !candidate.meets_push"
+                class="mt-3 rounded-lg bg-[#F6F8FC] px-3 py-2 text-[11px] leading-relaxed text-[#71809A]"
+              >
+                AI 建议关注，但 {{ candidate.ai_score }} 分未达推送线 {{ candidate.push_min_score }} 分，本次不会发送微信通知。进入面板可见，便于人工复核。
+              </p>
+              <p
+                v-else-if="candidate.meets_push"
+                class="mt-3 rounded-lg bg-[#EAF8F2] px-3 py-2 text-[11px] font-bold leading-relaxed text-[#0A6B4C]"
+              >
+                已达推送线（{{ candidate.push_min_score }} 分），会发送微信通知。
+              </p>
+              <div class="mt-3 grid gap-3" :class="breakdownGrid">
                 <div v-for="dimension in candidate.score_breakdown" :key="dimension.key">
                   <div class="flex items-center justify-between text-[10.5px] font-bold">
                     <span class="text-[#7B8AA3]">{{ dimension.label }}</span>
@@ -188,6 +312,80 @@ function scoreBar(value: number) {
                   <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#EDF1F8]">
                     <span class="block h-full rounded-full" :class="scoreBar(dimension.value)" :style="{ width: `${dimension.value}%` }"></span>
                   </div>
+                </div>
+              </div>
+            </section>
+
+            <section v-if="gpuSpecs" class="rounded-xl border border-[#DCE6F5] bg-white p-4">
+              <div class="flex items-center gap-2">
+                <span class="flex h-6 w-6 items-center justify-center rounded-md bg-[#E2EDFF] text-[#2360E6]">
+                  <Cpu class="h-3.5 w-3.5" />
+                </span>
+                <h3 class="text-[13px] font-black text-[#1D3557]">显卡规格</h3>
+                <span class="ml-auto text-[10px] font-bold text-[#8B9AB0]">型号与性能档决定上限</span>
+              </div>
+              <div class="mt-3 grid grid-cols-3 gap-2.5">
+                <div class="rounded-lg bg-[#F6F9FE] px-3 py-2">
+                  <p class="text-[10px] font-bold text-[#94A2B8]">型号</p>
+                  <p class="mt-1 text-[13px] font-black text-[#1D3557]">{{ gpuSpecs.model }}</p>
+                </div>
+                <div class="rounded-lg bg-[#F6F9FE] px-3 py-2">
+                  <p class="text-[10px] font-bold text-[#94A2B8]">显存</p>
+                  <p class="mt-1 text-[13px] font-black text-[#1D3557]">{{ gpuSpecs.vram }}</p>
+                </div>
+                <div class="rounded-lg bg-[#F6F9FE] px-3 py-2">
+                  <p class="text-[10px] font-bold text-[#94A2B8]">卡型</p>
+                  <p
+                    class="mt-1 text-[13px] font-black"
+                    :class="gpuSpecs.cardClass === '矿卡' || gpuSpecs.cardClass === '专业卡' ? 'text-[#B83B2D]' : 'text-[#1D3557]'"
+                  >{{ gpuSpecs.cardClass }}</p>
+                </div>
+              </div>
+              <div v-if="gpuSpecs.performance !== null" class="mt-3">
+                <div class="flex items-center justify-between text-[10.5px] font-bold">
+                  <span class="text-[#7B8AA3]">性能档（RTX 5090 = 100 分）</span>
+                  <span class="text-[#334867]">{{ gpuSpecs.performance }} / 100</span>
+                </div>
+                <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#EDF1F8]">
+                  <span class="block h-full rounded-full bg-[#3B78ED]" :style="{ width: `${gpuSpecs.performance}%` }"></span>
+                </div>
+              </div>
+              <div v-if="gpuSpecs.expected" class="mt-3 flex flex-wrap items-center gap-2 text-[11.5px]">
+                <span class="rounded-md bg-[#F3F7FF] px-2 py-1 font-bold text-[#52709B]">
+                  同档参考价 ¥{{ Math.round(gpuSpecs.expected) }}
+                </span>
+                <span
+                  v-if="gpuSpecs.verdict"
+                  class="font-bold"
+                  :class="gpuSpecs.verdict.includes('低') ? 'text-[#0A6B4C]' : gpuSpecs.verdict.includes('高') ? 'text-[#B83B2D]' : 'text-[#7B8AA3]'"
+                >
+                  {{ gpuSpecs.verdict }}
+                </span>
+              </div>
+            </section>
+
+            <section v-if="phoneChecks.length" class="rounded-xl border border-[#DCE6F5] bg-white p-4">
+              <div class="flex items-center gap-2">
+                <span class="flex h-6 w-6 items-center justify-center rounded-md bg-[#E2EDFF] text-[#2360E6]">
+                  <Smartphone class="h-3.5 w-3.5" />
+                </span>
+                <h3 class="text-[13px] font-black text-[#1D3557]">手机关键项</h3>
+                <span class="ml-auto text-[10px] font-bold text-[#8B9AB0]">电池/保修/账号是三处最容易踩坑</span>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-2.5">
+                <div
+                  v-for="check in phoneChecks"
+                  :key="check.key"
+                  class="rounded-lg border px-3 py-2"
+                  :class="criteriaTone(check.status)"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10.5px] font-black">{{ check.label }}</span>
+                    <span class="text-[9.5px] font-bold opacity-80">{{ check.statusLabel }}</span>
+                  </div>
+                  <p class="mt-1 line-clamp-2 text-[10.5px] leading-snug opacity-90">
+                    {{ check.comment || '未提供' }}
+                  </p>
                 </div>
               </div>
             </section>

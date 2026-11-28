@@ -49,18 +49,43 @@ export interface Candidate {
   ai_reason: string
   ai_summary: string
   ai_score: number | null
+  /** S/A/B/C/D，由总分换算；null 表示未分析 */
+  ai_grade: string | null
+  /** 触发的封顶规则（如「价格不低于行情，不算捡漏」），空数组表示未被封顶 */
+  caps_applied: string[]
+  /** 挂价 ÷ 行情中位数，精确口径（仅同型号样本足够时有值） */
+  bargain_ratio: number | null
+  /** 展示用价格位置，可能是关键词口径 */
+  price_gap: number | null
+  price_gap_scope: string | null
   ai_value_score: number | null
   score_breakdown: { key: string; label: string; value: number }[]
   risk_tags: string[]
   missing_checks: string[]
   criteria: CandidateCriteria[]
   recommended: boolean
+  /** 当前推送门槛（分数），与后台推送逻辑同源 */
+  push_min_score: number
+  /** 是否达到推送线：达到才会发微信通知 */
+  meets_push: boolean
   analysis_source: string
   ai_failed: boolean
   /** 底层硬门槛是否否决了这条候选（否决后分数封顶 40，且不会推送） */
   hard_blocked?: boolean
   hard_gates?: { key: string; label: string; detail: string; severity: string }[]
-  specs?: { model: string; vram_gb: number | null; card_class: string }
+  specs?: {
+    model: string
+    /** 型号展示名，如 GTX 1070 / RX 580 / Quadro P620 */
+    model_label?: string
+    vram_gb: number | null
+    card_class: string
+    /** 性能档 0-100（仅显卡有） */
+    performance?: number | null
+    /** 该性能档的二手参考价（仅显卡有） */
+    expected_price?: number | null
+  }
+  /** 品类分区：gpu 显卡 / phone 手机 / other 其他，UI 据此切换展示重点 */
+  category?: 'gpu' | 'phone' | 'other'
   market: {
     avg: number | null
     low: number | null
@@ -81,13 +106,16 @@ export interface CandidateResponse {
   counts: Record<ReviewStatus, number>
   ai_counts: Record<'all' | AiVerdict, number>
   task_counts: Record<string, number>
+  grade_counts: Record<'all' | 'S' | 'A' | 'B' | 'C' | 'D', number>
   review_labels: Record<ReviewStatus, string>
   ai_labels: Record<AiVerdict, string>
+  grade_labels: Record<string, string>
 }
 
 export interface CandidateQuery {
   review_status?: ReviewStatus | 'all'
   ai_verdict?: AiVerdict | 'all'
+  grade?: 'all' | 'S' | 'A' | 'B' | 'C' | 'D'
   task_id?: number
   q?: string
   sort?: 'smart' | 'newest' | 'price_asc' | 'price_desc' | 'score'
@@ -204,6 +232,7 @@ export async function getCandidates(params: CandidateQuery): Promise<CandidateRe
     params: {
       review_status: params.review_status ?? 'all',
       ai_verdict: params.ai_verdict ?? 'all',
+      grade: params.grade ?? 'all',
       task_id: params.task_id,
       q: params.q ?? '',
       sort: params.sort ?? 'smart',

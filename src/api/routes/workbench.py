@@ -38,6 +38,7 @@ async def get_workbench_summary(
 async def get_candidates(
     review_status: str = Query("all"),
     ai_verdict: str = Query("all"),
+    grade: str = Query("all"),
     task_id: int | None = Query(None),
     q: str = Query(""),
     sort: str = Query("smart"),
@@ -49,6 +50,8 @@ async def get_candidates(
         raise HTTPException(status_code=400, detail="未知的人工处理状态")
     if ai_verdict not in {"all", "recommend", "verify", "mismatch", "failed"}:
         raise HTTPException(status_code=400, detail="未知的 AI 判断筛选")
+    if grade not in {"all", "S", "A", "B", "C", "D"}:
+        raise HTTPException(status_code=400, detail="未知的评分等级筛选")
     tasks = await task_service.get_all_tasks()
     return await asyncio.to_thread(
         list_candidates,
@@ -60,6 +63,7 @@ async def get_candidates(
         sort=sort,
         page=page,
         limit=limit,
+        grade=grade,
     )
 
 

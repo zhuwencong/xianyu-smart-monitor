@@ -13,13 +13,19 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 from src.domain.scoring import (
-    breakdown_payload,
+    evaluate_candidate,
     evaluate_gates,
     extract_specs,
-    price_score,
-    resolve_overall,
+    grade_for,
+    push_min_score,
     resolve_verdict,
     task_allows_professional,
+)
+from src.domain.scoring.perf import (
+    expected_gpu_price,
+    gpu_model_label,
+    performance_score,
+    value_score,
 )
 from src.domain.scoring.specs import looks_like_gpu_task
 from src.failure_guard import FailureGuard
@@ -48,6 +54,13 @@ AI_LABELS = {
     "failed": "AI分析失败",
 }
 AI_PRIORITY = {"recommend": 0, "verify": 1, "mismatch": 2, "failed": 3}
+GRADE_LABELS = {
+    "S": "S 级·立刻联系",
+    "A": "A 级·可谈",
+    "B": "B 级·补证据",
+    "C": "C 级·观察",
+    "D": "D 级·放弃",
+}
 
 CRITERIA_LABELS = {
     "model_chip": "型号与规格",
@@ -307,6 +320,26 @@ def _build_gates(
     return specs, gates
 
 
+# 手机类才有这些核实项；用来在 UI 上把「电池/保修/账号」这类关键项顶出来。
+_PHONE_CRITERIA_KEYS = frozenset(
+    {"battery_health", "battery", "account_and_codes", "account_lock", "imei", "storage", "screen"}
+)
+
+
+def _candidate_category(specs, criteria: list[dict[str, Any]]) -> str:
+    """给 UI 分区的品类标签：gpu / phone / other。
+
+    显卡一定认得出型号（specs.is_gpu 由型号或显卡语境触发）；
+    手机靠核实项特征判断；两者都不是就归 other，UI 保持通用样式。
+    """
+    if specs is not None and specs.is_gpu:
+        return "gpu"
+    keys = {str(item.get("key") or "") for item in criteria}
+    if keys & _PHONE_CRITERIA_KEYS:
+        return "phone"
+    return "other"
+
+
 def _score_breakdown(
     analysis: dict[str, Any],
     criteria: list[dict[str, Any]],
@@ -315,39 +348,34 @@ def _score_breakdown(
     insight: dict[str, Any],
     verdict: str,
     gates=None,
-) -> tuple[int | None, list[dict[str, Any]]]:
+    specs=None,
+) -> tuple[int | None, list[dict[str, Any]], list[str], float | None, float | None, str]:
+    """五维打分 + 短板封顶，逻辑在 ``engine.evaluate_candidate`` 里统一实现。
+
+    分析阶段（决定推不推）和这里（决定排第几）共用同一个入口，
+    不会出现「推送了但面板分低」这种自相矛盾。
+    """
     if analysis.get("error") or not analysis:
-        return None, []
-    by_key = {item["key"]: item for item in criteria}
-
-    def score_for(keys: tuple[str, ...], default: int) -> int:
-        values = [_status_score(by_key[key]["status"]) for key in keys if key in by_key]
-        return _average(values, default)
-
-    match = score_for(("model_chip", "model", "storage", "screen"), 72)
-    if verdict == "mismatch":
-        match = min(match, 35)
-    elif verdict == "verify":
-        match = min(match, 70)
-    seller = score_for(("seller_type", "seller_credit"), 65)
-    evidence = score_for(
-        ("history", "battery_health", "warranty", "accessories", "condition", "shipping"),
-        60,
-    )
-    price_dimension, _price_source = price_score(price, insight, analysis.get("value_score"))
-    dimensions = {
-        "match": match,
-        "price": price_dimension,
-        "seller": seller,
-        "evidence": evidence,
-    }
-    overall = resolve_overall(
-        dimensions=dimensions,
-        ai_value_score=analysis.get("value_score"),
+        return None, [], [], None, None, ""
+    status_by_key = {item["key"]: item["status"] for item in criteria}
+    result = evaluate_candidate(
+        analysis=analysis,
+        status_by_key=status_by_key,
+        price=price,
+        insight=insight,
         verdict=verdict,
         gates=gates,
+        performance=performance_score(specs) if specs is not None else None,
+        value=value_score(price, specs) if specs is not None else None,
     )
-    return overall, breakdown_payload(dimensions)
+    return (
+        result["score"],
+        result["breakdown"],
+        result["caps"],
+        result["bargain_ratio"],
+        result["price_gap"],
+        result["price_gap_scope"] or "",
+    )
 
 
 def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
@@ -405,18 +433,38 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         score = int(score) if score is not None else None
     except (TypeError, ValueError):
         score = None
-    overall_score, score_breakdown = _score_breakdown(
-        analysis,
-        criteria,
-        price=price_value,
-        insight=insight,
-        verdict=verdict,
-        gates=gates,
-    )
+    # 分析阶段已经把分数写进 ai_analysis：优先用它，保证「推送了」和「面板高分」是同一件事。
+    # 老数据没有这些字段时才现场重算，算法升级后老结果保持原判，不偷偷改分。
+    try:
+        stored_total = analysis.get("score_total")
+        stored_total = int(stored_total) if stored_total is not None else None
+    except (TypeError, ValueError):
+        stored_total = None
+    if stored_total is not None:
+        overall_score = stored_total
+        score_breakdown = analysis.get("score_dims") or []
+        caps_applied = [str(cap) for cap in (analysis.get("score_caps") or [])]
+        price_ratio = analysis.get("score_ratio")
+        price_gap = analysis.get("score_gap")
+        price_gap_scope = str(analysis.get("score_gap_scope") or "")
+    else:
+        overall_score, score_breakdown, caps_applied, price_ratio, price_gap, price_gap_scope = _score_breakdown(
+            analysis,
+            criteria,
+            price=price_value,
+            insight=insight,
+            verdict=verdict,
+            gates=gates,
+            specs=specs,
+        )
 
     review_status = str(row["review_status"] or "unseen")
     if review_status not in REVIEW_LABELS:
         review_status = "unseen"
+
+    # UI 分区用：显卡卡展示型号/显存/性能档，手机卡展示电池/保修等关键核实项。
+    # 与打分同一个纯函数，不会出现「展示的性能分」和「参与加权的性能分」不一致。
+    gpu_performance = performance_score(specs)
 
     market_median = insight.get("market_median_price")
     market_scope = insight.get("market_scope")
@@ -452,6 +500,7 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
     market_block["comparable"] = comparable
     task_id = getattr(task, "id", None)
     task_name = getattr(task, "task_name", None) or _normalize_task_name(row["task_name"])
+    # bargain_ratio 只用于封顶（精确口径）；price_gap 用于展示，允许关键词口径。
     return {
         "id": int(row["id"]),
         "item_id": str(row["item_id"] or ""),
@@ -489,20 +538,38 @@ def _decorate_candidate(row: Any, task: Any | None) -> dict[str, Any]:
         "ai_reason": _strip_text(analysis.get("reason"), 500),
         "ai_summary": evidence,
         "ai_score": overall_score,
+        "ai_grade": analysis.get("score_grade") or grade_for(overall_score),
+        "caps_applied": caps_applied,
+        "bargain_ratio": round(price_ratio, 3) if price_ratio is not None else None,
+        "price_gap": round(price_gap, 3) if price_gap is not None else None,
+        "price_gap_scope": price_gap_scope or None,
         "ai_value_score": score,
         "score_breakdown": score_breakdown,
         "risk_tags": risk_tags,
         "missing_checks": _missing_checks(analysis, criteria, risk_tags),
         "criteria": criteria,
         "recommended": analysis.get("is_recommended") is True and not gates.blocked,
+        "push_min_score": push_min_score(),
+        "meets_push": bool(
+            analysis.get("is_recommended") is True
+            and not gates.blocked
+            and overall_score is not None
+            and overall_score >= push_min_score()
+        ),
         "analysis_source": analysis_source,
         "ai_failed": verdict == "failed",
         "hard_blocked": gates.blocked,
         "hard_gates": gates.as_list(),
+        "category": _candidate_category(specs, criteria),
         "specs": {
             "model": specs.model_family,
+            "model_label": gpu_model_label(specs.model_family),
             "vram_gb": specs.vram_gb,
             "card_class": specs.card_class,
+            "performance": gpu_performance,
+            "expected_price": expected_gpu_price(gpu_performance)
+            if gpu_performance is not None
+            else None,
         },
         "market": market_block,
     }
@@ -542,6 +609,7 @@ def list_candidates(
     sort: str = "smart",
     page: int = 1,
     limit: int = 12,
+    grade: str = "all",
 ) -> dict[str, Any]:
     tasks = list(tasks)
     by_filename, by_name = _task_lookup(tasks)
@@ -573,11 +641,18 @@ def list_candidates(
         key = str(item.get("task_id") or "")
         task_counts[key] = task_counts.get(key, 0) + 1
 
+    grade_counts: dict[str, int] = {"all": len(candidates), "S": 0, "A": 0, "B": 0, "C": 0, "D": 0}
+    for item in candidates:
+        item_grade = item.get("ai_grade")
+        if item_grade in grade_counts:
+            grade_counts[item_grade] += 1
+
     filtered = [
         item
         for item in candidates
         if (review_status == "all" or item["review_status"] == review_status)
         and (ai_verdict == "all" or item["ai_verdict"] == ai_verdict)
+        and (grade == "all" or item.get("ai_grade") == grade)
     ]
 
     if sort == "price_asc":
@@ -616,8 +691,10 @@ def list_candidates(
         "counts": counts,
         "ai_counts": ai_counts,
         "task_counts": task_counts,
+        "grade_counts": grade_counts,
         "review_labels": REVIEW_LABELS,
         "ai_labels": AI_LABELS,
+        "grade_labels": GRADE_LABELS,
     }
 
 

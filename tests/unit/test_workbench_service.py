@@ -127,7 +127,11 @@ def test_candidates_dedupe_and_filters(tmp_path, monkeypatch):
     assert latest["market"]["comparable"] is False
     assert latest["crawl_time"] == "2026-11-03T20:24:28"
     assert latest["ai_score"] is not None
-    assert [item["label"] for item in latest["score_breakdown"]] == ["匹配", "价格", "卖家", "凭证"]
+    # GTX1070 型号认得出来：显卡任务应带上性能与性价比两个维度
+    assert [item["label"] for item in latest["score_breakdown"]] == [
+        "价格", "卖家", "版本", "状况", "凭证", "性能", "性价比",
+    ]
+    assert latest["ai_grade"] in {"S", "A", "B", "C", "D"}
 
     searched = list_candidates([task], review_status="all", query="索泰", limit=10)
     assert searched["total"] == 2
@@ -284,3 +288,33 @@ def test_account_health_uses_login_failure_time(tmp_path, monkeypatch, frozen_no
     os.utime(account_file, (newer, newer))
     recovered = list_account_health()
     assert recovered[0]["status"] == "ok"
+
+
+def test_candidate_category_splits_gpu_phone_other():
+    """UI 分区靠 category：显卡认型号、手机认电池/保修核实项，其余归 other。"""
+    from src.domain.scoring.specs import extract_specs
+    from src.services.workbench_service import _candidate_category
+
+    gpu = extract_specs("索泰GTX1070 8G显卡，包邮", gpu_hint=True)
+    assert _candidate_category(gpu, [{"key": "model"}]) == "gpu"
+
+    phone = extract_specs("真我GT8 Pro 16+512G 白色")
+    assert _candidate_category(phone, [{"key": "battery_health"}, {"key": "model"}]) == "phone"
+
+    other = extract_specs("小米蓝牙遥控器2Pro")
+    assert _candidate_category(other, [{"key": "function"}]) == "other"
+
+
+def test_candidate_category_splits_gpu_phone_other():
+    """UI 分区靠 category：显卡认型号、手机认电池/保修核实项，其余归 other。"""
+    from src.domain.scoring.specs import extract_specs
+    from src.services.workbench_service import _candidate_category
+
+    gpu = extract_specs("索泰GTX1070 8G显卡，包邮", gpu_hint=True)
+    assert _candidate_category(gpu, [{"key": "model"}]) == "gpu"
+
+    phone = extract_specs("真我GT8 Pro 16+512G 白色")
+    assert _candidate_category(phone, [{"key": "battery_health"}, {"key": "model"}]) == "phone"
+
+    other = extract_specs("小米蓝牙遥控器2Pro")
+    assert _candidate_category(other, [{"key": "function"}]) == "other"

@@ -4,8 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   AlertTriangle,
   ArrowRight,
+  BellRing,
   ChevronDown,
   ClipboardList,
+  Gauge,
   Loader2,
   Plus,
   ScanLine,
@@ -36,6 +38,7 @@ const tasksLoaded = ref(false)
 const items = ref<Candidate[]>([])
 const counts = ref<Record<ReviewStatus, number>>({ unseen: 0, favorite: 0, handled: 0 })
 const aiCounts = ref<Record<'all' | AiVerdict, number>>({ all: 0, recommend: 0, verify: 0, mismatch: 0, failed: 0 })
+const gradeCounts = ref<Record<string, number>>({ all: 0, S: 0, A: 0, B: 0, C: 0, D: 0 })
 const total = ref(0)
 const page = ref(1)
 const isLoading = ref(true)
@@ -44,6 +47,7 @@ const error = ref<Error | null>(null)
 
 const reviewTab = ref<ReviewStatus>('unseen')
 const aiFilter = ref<'all' | AiVerdict>('all')
+const gradeFilter = ref<'all' | 'S' | 'A' | 'B' | 'C' | 'D'>('all')
 const taskFilter = ref('all')
 const sortBy = ref<'score' | 'newest' | 'price_asc' | 'price_desc'>('score')
 const searchText = ref('')
@@ -72,6 +76,26 @@ const aiOptions = computed(() => [
 
 const hasMore = computed(() => items.value.length < total.value)
 const activeTask = computed(() => tasks.value.find((task) => String(task.id) === taskFilter.value) || null)
+
+// 等级是这一页的主线索：先看有没有 S/A 的漏，再看别的。
+const GRADE_TONE: Record<'all' | 'S' | 'A' | 'B' | 'C' | 'D', { on: string; off: string }> = {
+  all: { on: 'border-[#C9DBF8] bg-[#EEF4FF] text-[#2360E6]', off: 'border-transparent text-[#66768D]' },
+  S: { on: 'border-[#9FDCC4] bg-[#E6F7F0] text-[#0A6B4C]', off: 'border-transparent text-[#0A6B4C]' },
+  A: { on: 'border-[#BFD4F7] bg-[#EDF3FE] text-[#1E5BD8]', off: 'border-transparent text-[#1E5BD8]' },
+  B: { on: 'border-[#F1D7A7] bg-[#FFF8EA] text-[#A56209]', off: 'border-transparent text-[#A56209]' },
+  C: { on: 'border-[#DDE3EC] bg-[#F4F6FA] text-[#52637B]', off: 'border-transparent text-[#66768D]' },
+  D: { on: 'border-[#F1D3CE] bg-[#FFF4F2] text-[#B83B2D]', off: 'border-transparent text-[#B83B2D]' },
+}
+const gradeOptions = computed(() => [  { key: 'all' as const, label: '全部', hint: '', count: gradeCounts.value.all ?? 0 },
+  { key: 'S' as const, label: 'S', hint: '立刻联系', count: gradeCounts.value.S ?? 0 },
+  { key: 'A' as const, label: 'A', hint: '可谈', count: gradeCounts.value.A ?? 0 },
+  { key: 'B' as const, label: 'B', hint: '补证据', count: gradeCounts.value.B ?? 0 },
+  { key: 'C' as const, label: 'C', hint: '观察', count: gradeCounts.value.C ?? 0 },
+  { key: 'D' as const, label: 'D', hint: '放弃', count: gradeCounts.value.D ?? 0 },
+])
+
+// 推送门槛由后端给出，和实际推送逻辑同源，不在前端写死。
+const pushLine = computed(() => items.value[0]?.push_min_score ?? 75)
 const accountAlerts = computed(() =>
   (summary.value?.accounts || []).filter((account) => account.status === 'needs_update')
 )
@@ -89,7 +113,7 @@ const selectedTaskCount = computed(() => {
 })
 
 const showFirstRun = computed(() => !isLoading.value && tasksLoaded.value && tasks.value.length === 0)
-const hasFilters = computed(() => reviewTab.value !== 'unseen' || aiFilter.value !== 'all' || taskFilter.value !== 'all' || appliedSearch.value)
+const hasFilters = computed(() => reviewTab.value !== 'unseen' || aiFilter.value !== 'all' || gradeFilter.value !== 'all' || taskFilter.value !== 'all' || appliedSearch.value)
 
 function readAiFromRoute() {
   const ai = typeof route.query.ai === 'string' ? route.query.ai : ''
@@ -126,6 +150,7 @@ async function loadCandidates(reset = true) {
     const data: CandidateResponse = await getCandidates({
       review_status: reviewTab.value,
       ai_verdict: aiFilter.value,
+      grade: gradeFilter.value,
       task_id: taskFilter.value === 'all' ? undefined : Number(taskFilter.value),
       q: appliedSearch.value,
       sort: sortBy.value,
@@ -135,6 +160,7 @@ async function loadCandidates(reset = true) {
     if (token !== loadToken) return
     counts.value = data.counts
     aiCounts.value = data.ai_counts
+    if (data.grade_counts) gradeCounts.value = data.grade_counts
     total.value = data.total
     items.value = reset ? data.items : [...items.value, ...data.items]
   } catch (e) {
@@ -160,6 +186,12 @@ function changeAiFilter(value: string) {
   loadCandidates(true)
 }
 
+function changeGrade(value: 'all' | 'S' | 'A' | 'B' | 'C' | 'D') {
+  if (gradeFilter.value === value) return
+  gradeFilter.value = value
+  loadCandidates(true)
+}
+
 function changeTaskFilter(value: string) {
   taskFilter.value = value
   loadCandidates(true)
@@ -179,6 +211,7 @@ function clearSearch() {
 function clearFilters() {
   reviewTab.value = 'unseen'
   aiFilter.value = 'all'
+  gradeFilter.value = 'all'
   taskFilter.value = 'all'
   searchText.value = ''
   appliedSearch.value = ''
@@ -405,6 +438,31 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="error" class="app-alert-error mb-4" role="alert">{{ error.message }}</div>
+
+    <section class="mb-3 rounded-xl border border-[#E7ECF5] bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(16,42,86,0.02)]">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="mr-1 inline-flex items-center gap-1.5 text-[12px] font-black text-[#40526C]">
+          <Gauge class="h-3.5 w-3.5 text-[#2360E6]" :stroke-width="2.2" />
+          捡漏等级
+        </span>
+        <button
+          v-for="g in gradeOptions"
+          :key="g.key"
+          type="button"
+          class="inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-bold transition-colors"
+          :class="gradeFilter === g.key ? GRADE_TONE[g.key].on : `bg-white ${GRADE_TONE[g.key].off} hover:bg-[#F7FAFF]`"
+          @click="changeGrade(g.key)"
+        >
+          <span>{{ g.label }}</span>
+          <span v-if="g.hint" class="text-[10px] font-semibold opacity-75">{{ g.hint }}</span>
+          <span class="inline-flex min-w-[18px] items-center justify-center rounded bg-white/70 px-1 text-[10px] font-black">{{ g.count }}</span>
+        </button>
+        <span class="ml-auto hidden items-center gap-1.5 text-[11px] text-[#93A1B5] sm:flex">
+          <BellRing class="h-3 w-3 text-[#0A6B4C]" :stroke-width="2.2" />
+          推送线 {{ pushLine }} 分 · 达到才会发微信通知
+        </span>
+      </div>
+    </section>
 
     <div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#E7ECF5] bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(16,42,86,0.02)]">
       <div class="flex items-center rounded-lg bg-[#F4F7FC] p-1">

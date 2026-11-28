@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import {
+  BellRing,
   Bookmark,
   Check,
   CircleHelp,
@@ -8,9 +9,8 @@ import {
   ImageOff,
   MessageSquareText,
   ShieldAlert,
-  Sparkles,
   Star,
-  XCircle,
+  TrendingDown,
 } from 'lucide-vue-next'
 import type { Candidate } from '@/api/workbench'
 
@@ -24,50 +24,124 @@ const emit = defineEmits<{
 
 const imageFailed = ref(false)
 
-const tone = computed(() => {
-  switch (props.candidate.ai_verdict) {
-    case 'recommend':
-      return {
-        badge: 'border-[#BFE8D7] bg-[#EAF8F2] text-[#0C7A56]',
-        icon: Sparkles,
-        label: '建议关注',
-      }
-    case 'verify':
-      return {
-        badge: 'border-[#F1D7A7] bg-[#FFF8EA] text-[#A56209]',
-        icon: ShieldAlert,
-        label: '需核实',
-      }
-    case 'failed':
-      return {
-        badge: 'border-[#F1D3CE] bg-[#FFF4F2] text-[#B83B2D]',
-        icon: XCircle,
-        label: 'AI 分析失败',
-      }
-    default:
-      return {
-        badge: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#64748B]',
-        icon: XCircle,
-        label: '不匹配',
-      }
-  }
-})
+const GRADE_META: Record<string, { label: string; hint: string; badge: string; ring: string; bar: string }> = {
+  S: {
+    label: 'S 级',
+    hint: '立刻联系',
+    badge: 'border-[#9FDCC4] bg-[#E6F7F0] text-[#0A6B4C]',
+    ring: 'text-[#0A6B4C]',
+    bar: 'bg-[#14A06E]',
+  },
+  A: {
+    label: 'A 级',
+    hint: '可谈',
+    badge: 'border-[#BFD4F7] bg-[#EDF3FE] text-[#1E5BD8]',
+    ring: 'text-[#1E5BD8]',
+    bar: 'bg-[#3B78ED]',
+  },
+  B: {
+    label: 'B 级',
+    hint: '补证据',
+    badge: 'border-[#F1D7A7] bg-[#FFF8EA] text-[#A56209]',
+    ring: 'text-[#B77912]',
+    bar: 'bg-[#E1A23C]',
+  },
+  C: {
+    label: 'C 级',
+    hint: '观察',
+    badge: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#64748B]',
+    ring: 'text-[#64748B]',
+    bar: 'bg-[#9AA8BC]',
+  },
+  D: {
+    label: 'D 级',
+    hint: '放弃',
+    badge: 'border-[#F1D3CE] bg-[#FFF4F2] text-[#B83B2D]',
+    ring: 'text-[#B83B2D]',
+    bar: 'bg-[#D26A58]',
+  },
+}
 
+const grade = computed(() => props.candidate.ai_grade || '')
+const gradeMeta = computed(() => GRADE_META[grade.value] || null)
 const isFavorite = computed(() => props.candidate.review_status === 'favorite')
 const isHandled = computed(() => props.candidate.review_status === 'handled')
 const evidence = computed(() => props.candidate.ai_summary || 'AI 尚未给出完整判断。')
 const missing = computed(() => props.candidate.missing_checks.join('、'))
-const scoreTone = computed(() => {
-  const score = props.candidate.ai_score ?? 0
-  if (score >= 75) return 'text-[#1E5BD8]'
-  if (score >= 60) return 'text-[#B77912]'
-  return 'text-[#B54A3A]'
+const scoreTone = computed(() => gradeMeta.value?.ring || 'text-[#64748B]')
+const scoreBarTone = computed(() => gradeMeta.value?.bar || 'bg-[#9AA8BC]')
+const caps = computed(() => props.candidate.caps_applied || [])
+
+// 品类分区：显卡看型号/显存/性能档，手机看电池/保修/账号，其他品类不额外占位。
+const category = computed<'gpu' | 'phone' | 'other'>(() => {
+  const c = props.candidate
+  if (c.category) return c.category
+  if (c.specs?.model) return 'gpu'
+  return 'other'
 })
-const scoreBarTone = computed(() => {
-  const score = props.candidate.ai_score ?? 0
-  if (score >= 75) return 'bg-[#3B78ED]'
-  if (score >= 60) return 'bg-[#E1A23C]'
-  return 'bg-[#D26A58]'
+
+const CARD_CLASS_LABEL: Record<string, string> = {
+  professional: '专业卡',
+  mining: '矿卡',
+  consumer: '消费级',
+  unknown: '',
+}
+
+const gpuChips = computed(() => {
+  const c = props.candidate
+  if (category.value !== 'gpu' || !c.specs) return []
+  const chips: { text: string; tone: string }[] = []
+  const label = c.specs.model_label || c.specs.model
+  if (label) chips.push({ text: label, tone: 'border-[#C9DBF8] bg-[#EEF4FF] text-[#1E5BD8]' })
+  if (c.specs.vram_gb) {
+    chips.push({ text: `${c.specs.vram_gb}G`, tone: 'border-[#E2E8F1] bg-[#F5F7FA] text-[#52637B]' })
+  }
+  if (typeof c.specs.performance === 'number') {
+    chips.push({
+      text: `性能 ${c.specs.performance}`,
+      tone: 'border-[#D7E4F6] bg-[#F1F7FF] text-[#2B5D9E]',
+    })
+  }
+  const classLabel = CARD_CLASS_LABEL[c.specs.card_class] || ''
+  if (classLabel && c.specs.card_class !== 'consumer') {
+    chips.push({ text: classLabel, tone: 'border-[#F1D3CE] bg-[#FFF4F2] text-[#B83B2D]' })
+  }
+  return chips
+})
+
+const PHONE_KEY_KEYS = ['battery_health', 'battery', 'warranty', 'account_and_codes', 'imei']
+const phoneChips = computed(() => {
+  const c = props.candidate
+  if (category.value !== 'phone') return []
+  const byKey = new Map(c.criteria.map((item) => [item.key, item]))
+  const chips: { text: string; tone: string }[] = []
+  for (const key of PHONE_KEY_KEYS) {
+    const item = byKey.get(key)
+    if (!item) continue
+    const status = String(item.status || '').toUpperCase()
+    const tone =
+      status === 'PASS'
+        ? 'border-[#CAEBDD] bg-[#F0FBF6] text-[#0C7A56]'
+        : status === 'FAIL'
+          ? 'border-[#F2D2CD] bg-[#FFF5F3] text-[#B83B2D]'
+          : 'border-[#F1D7A7] bg-[#FFF9ED] text-[#A56209]'
+    const label = key === 'battery_health' || key === 'battery' ? '电池' : item.label || key
+    const detail = (item.comment || item.evidence || '').trim()
+    chips.push({ text: detail ? `${label} ${detail.slice(0, 14)}` : label, tone })
+    if (chips.length >= 3) break
+  }
+  return chips
+})
+
+// 价格位置：<1 表示比行情便宜。关键词口径只作估算，加「约」弱化。
+const priceGap = computed(() => {
+  const gap = props.candidate.price_gap
+  if (gap === null || gap === undefined) return null
+  const diff = Math.round((1 - gap) * 100)
+  const approx = props.candidate.price_gap_scope === 'keyword' ? '约' : ''
+  if (Math.abs(diff) < 1) return { text: '与行情持平', good: false, approx }
+  if (diff > 0) return { text: `${approx}低于行情 ${diff}%`, good: true, approx }
+  return { text: `${approx}高于行情 ${Math.abs(diff)}%`, good: false, approx }
 })
 
 function openDetail() {
@@ -135,38 +209,85 @@ function openDetail() {
           </button>
         </h3>
         <span
+          v-if="gradeMeta"
           class="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black leading-none"
-          :class="tone.badge"
+          :class="gradeMeta.badge"
         >
-          <component :is="tone.icon" class="h-3 w-3" :stroke-width="2.4" />
-          {{ tone.label }}
+          {{ gradeMeta.label }}
+          <span class="text-[9.5px] font-bold opacity-80">{{ gradeMeta.hint }}</span>
+        </span>
+        <span
+          v-else
+          class="mt-0.5 inline-flex shrink-0 items-center rounded-md border border-[#E2E8F1] bg-[#F5F7FA] px-2 py-1 text-[11px] font-bold leading-none text-[#8492A6]"
+        >
+          待评估
         </span>
       </div>
 
       <div class="mt-2 flex items-baseline gap-2">
         <span class="text-[27px] font-black leading-none tracking-tight text-[#E03838]">{{ candidate.price_display }}</span>
-        <span v-if="candidate.market.label" class="ml-auto text-[10.5px] font-medium text-[#8B9AB0]">
+        <span
+          v-if="priceGap"
+          class="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold"
+          :class="priceGap.good ? 'bg-[#E9F7F0] text-[#0A6B4C]' : 'bg-[#F5F7FA] text-[#7B8AA3]'"
+        >
+          <TrendingDown v-if="priceGap.good" class="h-3 w-3" :stroke-width="2.2" />
+          {{ priceGap.text }}
+        </span>
+        <span v-else-if="candidate.market.label" class="ml-auto text-[10.5px] font-medium text-[#8B9AB0]">
           {{ candidate.market.label }}
         </span>
       </div>
 
       <div
-        v-if="candidate.ai_score !== null && candidate.score_breakdown?.length"
-        class="mt-2.5 flex items-center gap-3 rounded-lg border border-[#E1EAF8] bg-[#F7FAFF] px-2.5 py-2"
+        v-if="gpuChips.length || phoneChips.length"
+        class="mt-2 flex flex-wrap items-center gap-1"
       >
-        <div class="flex w-[54px] shrink-0 flex-col items-center">
-          <span class="text-[29px] font-black leading-none tracking-tight" :class="scoreTone">{{ candidate.ai_score }}</span>
-          <span class="mt-0.5 text-[9px] font-bold leading-none text-[#7B8AA3]">综合评分</span>
-        </div>
-        <div class="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1.5">
-          <div v-for="dimension in candidate.score_breakdown" :key="dimension.key" class="flex items-center gap-1.5">
-            <span class="w-[22px] shrink-0 text-[9px] font-bold leading-none text-[#8190A6]">{{ dimension.label }}</span>
-            <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-[#E8EEF8]">
-              <span class="block h-full rounded-full" :class="scoreBarTone" :style="{ width: `${dimension.value}%` }"></span>
+        <span
+          v-for="chip in (category === 'gpu' ? gpuChips : phoneChips)"
+          :key="chip.text"
+          class="inline-flex max-w-full items-center truncate rounded-md border px-1.5 py-0.5 text-[10px] font-bold leading-none"
+          :class="chip.tone"
+        >
+          {{ chip.text }}
+        </span>
+      </div>
+
+      <div
+        v-if="candidate.ai_score !== null && candidate.score_breakdown?.length"
+        class="mt-2.5 rounded-lg border border-[#E1EAF8] bg-[#F7FAFF] px-2.5 py-2"
+      >
+        <div class="flex items-center gap-3">
+          <div class="flex w-[54px] shrink-0 flex-col items-center">
+            <span class="text-[29px] font-black leading-none tracking-tight" :class="scoreTone">{{ candidate.ai_score }}</span>
+            <span class="mt-0.5 text-[9px] font-bold leading-none text-[#7B8AA3]">综合评分</span>
+          </div>
+          <div class="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1.5">
+            <div v-for="dimension in candidate.score_breakdown" :key="dimension.key" class="flex items-center gap-1.5">
+              <span class="w-[22px] shrink-0 text-[9px] font-bold leading-none text-[#8190A6]">{{ dimension.label }}</span>
+              <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-[#E8EEF8]">
+                <span class="block h-full rounded-full" :class="scoreBarTone" :style="{ width: `${dimension.value}%` }"></span>
+              </div>
+              <span class="w-[17px] shrink-0 text-right text-[9px] font-bold leading-none text-[#40526C]">{{ dimension.value }}</span>
             </div>
-            <span class="w-[17px] shrink-0 text-right text-[9px] font-bold leading-none text-[#40526C]">{{ dimension.value }}</span>
           </div>
         </div>
+        <p v-if="caps.length" class="mt-1.5 flex items-start gap-1 border-t border-[#EDF2FA] pt-1.5 text-[10px] leading-snug text-[#A56209]">
+          <ShieldAlert class="mt-[1px] h-3 w-3 shrink-0" :stroke-width="2" />
+          <span class="line-clamp-2">已封顶：{{ caps.join('；') }}</span>
+        </p>
+        <p
+          v-if="candidate.recommended && !candidate.meets_push"
+          class="mt-1.5 border-t border-[#EDF2FA] pt-1.5 text-[10px] leading-snug text-[#8B9AB0]"
+        >
+          AI 建议关注，但未达推送线 {{ candidate.push_min_score }} 分，不会发通知
+        </p>
+        <p
+          v-else-if="candidate.meets_push"
+          class="mt-1.5 flex items-center gap-1 border-t border-[#EDF2FA] pt-1.5 text-[10px] font-bold leading-snug text-[#0A6B4C]"
+        >
+          <BellRing class="h-3 w-3" :stroke-width="2.2" /> 已达推送线，会发送通知
+        </p>
       </div>
       <div
         v-else

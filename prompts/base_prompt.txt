@@ -4,6 +4,15 @@
 
 ### **第三部分：输出格式 (必须严格遵守)**
 
+**凭证与验机两个字段是必答项，不得省略、不得留空。** 评分体系用它们判断「这笔交易在付款前能不能把风险关掉」：不填就等于告诉系统「没法验证」，商品会被降档处理。
+
+- `warranty`（保修与凭证）：是否有剩余保修、发票/订单截图、购买凭证、是否在保。
+  明确在保或能提供凭证 → `PASS`；完全未提及 → `NEEDS_MANUAL_CHECK`；明确无保修且拿不出任何凭证 → `FAIL`。
+- `verification`（验机与核对）：是否支持验货宝/官方验机、是否愿视频看机或同城面交、IMEI 与三码能否核对。
+  支持验货宝且能核对三码 → `PASS`；只说"可自提"但无验机安排 → `NEEDS_MANUAL_CHECK`；明确拒绝任何验证方式 → `FAIL`。
+
+这两个字段的 `evidence` 必须引用原文或图片中的具体线索（如"描述中写明'支持验货宝'"），不允许写"未提供"以外的空话。
+
 你的输出必须是以下格式的单个 JSON 对象，不能包含任何额外的注释或解释性文字。
 
 ```json
@@ -17,6 +26,8 @@
     "battery_health": { "status": "string", "comment": "string", "evidence": "string" },
     "condition": { "status": "string", "comment": "string", "evidence": "string" },
     "history": { "status": "string", "comment": "string", "evidence": "string" },
+    "warranty": { "status": "PASS|FAIL|NEEDS_MANUAL_CHECK|WARNING", "comment": "保修状态与凭证情况", "evidence": "原文或图片中的具体线索" },
+    "verification": { "status": "PASS|FAIL|NEEDS_MANUAL_CHECK|WARNING", "comment": "验货宝/视频看机/三码核对的条件", "evidence": "原文或图片中的具体线索" },
     "seller_type": {
       "status": "string",
       "persona": "string",
